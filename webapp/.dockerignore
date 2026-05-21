@@ -1,0 +1,26 @@
+# Local venvs / caches — never copy into image
+.venv
+__pycache__
+*.py[cod]
+.pytest_cache
+.mypy_cache
+.ruff_cache
+.coverage
+htmlcov
+
+# Local secrets (never bake into image)
+.env
+.env.local
+
+# uv cache
+.uv-cache
+
+# Editor / OS
+.vscode
+.idea
+*.swp
+.DS_Store
+
+# Git
+.git
+.gitignore

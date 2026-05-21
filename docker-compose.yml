@@ -78,16 +78,19 @@ services:
       - start-dev                      # dev mode — switch to `start` in prod
       - --import-realm                 # auto-import realm config on boot
     environment:
+      # In start-dev mode use the classic KEYCLOAK_ADMIN/_PASSWORD vars.
+      # KC_BOOTSTRAP_ADMIN_* is for non-dev mode and triggers the
+      # "Local access required" screen when used here.
       KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
       KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       KC_DB: postgres
       KC_DB_URL: jdbc:postgresql://postgres:5432/${POSTGRES_DB}
       KC_DB_USERNAME: ${POSTGRES_USER}
       KC_DB_PASSWORD: ${POSTGRES_PASSWORD}
-      KC_DB_SCHEMA: keycloak           # isolated schema in shared DB
+      KC_DB_SCHEMA: keycloak           # schema pre-created by postgres/init/01-create-keycloak-schema.sql
       KC_HOSTNAME_STRICT: "false"
       KC_HTTP_ENABLED: "true"
-      # KC_PROXY_HEADERS: xforwarded     # behind Caddy
+      # KC_PROXY_HEADERS: xforwarded   # Re-enable when Caddy is in front
       TZ: ${TZ}
     volumes:
       - ./keycloak/realm-export:/opt/keycloak/data/import:ro
@@ -144,46 +147,50 @@ services:
   #       condition: service_healthy
 
   # ─── 5. FastAPI Webapp ───────────────────────────────────────────────
-  # NOTE: Activated in volgende stap zodra Dockerfile + code er staan.
-  #
-  # webapp:
-  #   build: ./webapp
-  #   container_name: sparki-webapp
-  #   restart: unless-stopped
-  #   environment:
-  #     ENVIRONMENT: ${ENVIRONMENT}
-  #     TZ: ${TZ}
-  #     POSTGRES_HOST: postgres
-  #     POSTGRES_PORT: 5432
-  #     POSTGRES_DB: ${POSTGRES_DB}
-  #     POSTGRES_USER: ${POSTGRES_USER}
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  #     INFLUXDB_HOST: influxdb
-  #     INFLUXDB_PORT: 8086
-  #     INFLUXDB_ORG: ${INFLUXDB_ORG}
-  #     INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
-  #     INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
-  #     KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL}
-  #     KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL}
-  #     KEYCLOAK_REALM: ${KEYCLOAK_REALM}
-  #     KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
-  #     KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
-  #     WEBAPP_SECRET_KEY: ${WEBAPP_SECRET_KEY}
-  #     FERNET_KEY: ${FERNET_KEY}
-  #   networks:
-  #     - sparki_net
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     influxdb:
-  #       condition: service_healthy
-  #     keycloak:
-  #       condition: service_healthy
-  #   healthcheck:
-  #     test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
-  #     interval: 15s
-  #     timeout: 5s
-  #     retries: 3
+  webapp:
+    build: ./webapp
+    container_name: sparki-webapp
+    restart: unless-stopped
+    environment:
+      ENVIRONMENT: ${ENVIRONMENT}
+      TZ: ${TZ}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      INFLUXDB_HOST: influxdb
+      INFLUXDB_PORT: 8086
+      INFLUXDB_ORG: ${INFLUXDB_ORG}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      KEYCLOAK_INTERNAL_URL: ${KEYCLOAK_INTERNAL_URL}
+      KEYCLOAK_PUBLIC_URL: ${KEYCLOAK_PUBLIC_URL}
+      KEYCLOAK_REALM: ${KEYCLOAK_REALM}
+      KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
+      KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+      WEBAPP_SECRET_KEY: ${WEBAPP_SECRET_KEY}
+      FERNET_KEY: ${FERNET_KEY}
+    networks:
+      - sparki_net
+    # Exposed to host during dev; in prod Caddy proxies on its place.
+    ports:
+      - "127.0.0.1:8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
+      keycloak:
+        condition: service_healthy
+    # Healthcheck is also defined inside the Dockerfile; this overrides
+    # the timing for Compose's perspective.
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/healthz"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
 
   # ─── 6. Caddy (reverse proxy) ────────────────────────────────────────
   # NOTE: Activated zodra webapp draait. Caddyfile staat al klaar.
