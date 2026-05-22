@@ -32,9 +32,8 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # dus uv installeert alleen dependencies (al gebeurd boven), niet de webapp zelf.
 # uvicorn start straks `app.main:app` direct vanuit de filesystem.
 COPY app ./app
-# Migrations + alembic.ini komen in Stap 2C — pas dan hier weer toevoegen:
-# COPY migrations ./migrations
-# COPY alembic.ini ./
+COPY migrations ./migrations
+COPY alembic.ini ./
 
 # ─── Stage 2: runtime ────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime
