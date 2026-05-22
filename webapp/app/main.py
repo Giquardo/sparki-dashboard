@@ -22,6 +22,8 @@ from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 
 from app import __version__
+from app.auth.keycloak import warm_jwks_cache
+from app.auth.routes import router as auth_router
 from app.config import settings
 from app.core.healthz import collect_health
 from app.database import dispose_engine
@@ -58,6 +60,8 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     # Eager-init Influx client (lazy by default, but warm it now)
     get_influx_client()
+    # Pre-fetch Keycloak JWKS so first request doesn't pay the network cost
+    await warm_jwks_cache()
 
     yield
 
@@ -128,3 +132,7 @@ async def root() -> dict[str, str]:
         "health": "/healthz",
         "readiness": "/readyz",
     }
+
+
+# ─── Router registration ─────────────────────────────────────────────
+app.include_router(auth_router)

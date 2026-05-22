@@ -18,7 +18,8 @@ dependencies = [
     "python-multipart>=0.0.12",       # form parsing
 
     # Settings & validation
-    "pydantic>=2.9.0",
+    # Settings & validation
+    "pydantic[email]>=2.9.0",          # [email] adds email-validator for EmailStr
     "pydantic-settings>=2.6.0",
 
     # Database (async SQLAlchemy + Postgres)
