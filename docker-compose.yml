@@ -169,6 +169,10 @@ services:
       KEYCLOAK_REALM: ${KEYCLOAK_REALM}
       KEYCLOAK_CLIENT_ID: ${KEYCLOAK_CLIENT_ID}
       KEYCLOAK_CLIENT_SECRET: ${KEYCLOAK_CLIENT_SECRET}
+      # These two are only consumed by scripts/seed.py via the admin API.
+      # They're not needed by FastAPI for request handling.
+      KEYCLOAK_ADMIN: ${KEYCLOAK_ADMIN}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD}
       WEBAPP_SECRET_KEY: ${WEBAPP_SECRET_KEY}
       FERNET_KEY: ${FERNET_KEY}
     networks:
@@ -176,6 +180,10 @@ services:
     # Exposed to host during dev; in prod Caddy proxies on its place.
     ports:
       - "127.0.0.1:8000:8000"
+    # Mount scripts read-only so we can run them via `docker compose exec`
+    # without rebuilding the image.
+    volumes:
+      - ./scripts:/app/scripts:ro
     depends_on:
       postgres:
         condition: service_healthy

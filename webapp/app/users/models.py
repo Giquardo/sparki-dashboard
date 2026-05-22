@@ -57,7 +57,11 @@ class User(Base, TimestampMixin):
     email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     role: Mapped[UserRole] = mapped_column(
-        Enum(UserRole, name="user_role"),
+        Enum(
+            UserRole,
+            name="user_role",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
         index=True,
     )

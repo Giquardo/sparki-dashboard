@@ -79,7 +79,12 @@ class AuditLog(Base):
     )
 
     action: Mapped[AuditAction] = mapped_column(
-        Enum(AuditAction, name="audit_action"), nullable=False,
+        Enum(
+            AuditAction,
+            name="audit_action",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
     )
     # Resource type as a free-form string: "building", "site", "organization", etc.
     # Free-form to keep audit forward-compatible without migrations.
@@ -87,7 +92,12 @@ class AuditLog(Base):
     resource_id: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     status: Mapped[AuditStatus] = mapped_column(
-        Enum(AuditStatus, name="audit_status"), nullable=False,
+        Enum(
+            AuditStatus,
+            name="audit_status",
+            values_callable=lambda x: [e.value for e in x],
+        ),
+        nullable=False,
     )
     ip: Mapped[str | None] = mapped_column(INET, nullable=True)
     # Optional free-form context — e.g. error message, requested filter, etc.

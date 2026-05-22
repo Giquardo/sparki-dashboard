@@ -46,7 +46,11 @@ class Organization(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False, unique=True, index=True)
     type: Mapped[OrganizationType] = mapped_column(
-        Enum(OrganizationType, name="organization_type"),
+        Enum(
+            OrganizationType,
+            name="organization_type",
+            values_callable=lambda x: [e.value for e in x],
+        ),
         nullable=False,
     )
 

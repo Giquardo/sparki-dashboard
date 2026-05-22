@@ -8,10 +8,32 @@ Pydantic schemas for the auth layer.
 from __future__ import annotations
 
 import uuid
+from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from email_validator import EmailNotValidError, validate_email
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
 
 from app.users.models import UserRole
+
+
+def _validate_email_permissive(v: str | None) -> str | None:
+    """Validate an email but allow reserved TLDs (.test, .example, .localhost, .invalid).
+
+    These are RFC 2606 reserved TLDs intended for testing and documentation.
+    pydantic's default EmailStr (via email-validator) rejects them, which
+    breaks our demo fixtures like 'tenant@sigenburg.test'.
+    """
+    if v is None:
+        return None
+    try:
+        result = validate_email(v, check_deliverability=False, test_environment=True)
+    except EmailNotValidError as exc:
+        raise ValueError(f"Invalid email: {exc}") from exc
+    return result.normalized
+
+
+# A drop-in replacement for EmailStr that tolerates .test / .example / .localhost
+PermissiveEmail = Annotated[str, BeforeValidator(_validate_email_permissive)]
 
 
 class TokenPayload(BaseModel):
@@ -24,7 +46,7 @@ class TokenPayload(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
     sub: uuid.UUID = Field(..., description="Keycloak user id")
-    email: EmailStr | None = Field(None)
+    email: PermissiveEmail | None = Field(None)
     preferred_username: str | None = Field(None)
     name: str | None = Field(None, description="Display name")
     exp: int = Field(..., description="Expiry, unix timestamp")
