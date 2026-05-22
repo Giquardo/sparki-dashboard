@@ -22,6 +22,11 @@ from fastapi.responses import JSONResponse
 from app import __version__
 from app.config import settings
 
+# Importing app.models registers ALL SQLAlchemy models on Base.metadata.
+# We don't use the symbols here directly, but the side-effect is required
+# for Alembic autogenerate (Step 2C) and any future model introspection.
+from app import models  # noqa: F401
+
 # ─── Logging ─────────────────────────────────────────────────────────
 logging.basicConfig(
     level=logging.DEBUG if not settings.is_production else logging.INFO,
