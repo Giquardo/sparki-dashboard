@@ -7,9 +7,8 @@ Three endpoints:
   GET /api/buildings/{id}/history       → time-series data
 
 All three are authenticated AND filtered by `buildings_visible_to(user)`.
-A user requesting a building outside their visibility set gets a 403.
-
-⚠️ Audit logging of 403 attempts is added in Step 2.5C — not yet here.
+A user requesting a building outside their visibility set gets a 403,
+which is also recorded in `audit_log` for GDPR compliance.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ import uuid
 from datetime import datetime, timedelta, timezone
 from typing import Annotated
 
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -32,6 +31,8 @@ from app.buildings.schemas import (
     BuildingOut,
 )
 from app.buildings.service import get_history, get_latest_for_building
+from app.core.audit import AuditAction
+from app.core.audit_service import log_access_allowed, log_access_denied
 from app.core.permissions import buildings_visible_to
 from app.database import get_session
 
@@ -52,18 +53,18 @@ router = APIRouter(prefix="/api/buildings", tags=["buildings"])
     ),
 )
 async def list_buildings(
+    request: Request,
     user: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> list[Building]:
-    """Return buildings visible to the current user.
-
-    Two-step process for clarity:
-      1. Compute the visible-IDs set (centralized in permissions module)
-      2. Fetch the building rows that match, ordered by name
-    """
+    """Return buildings visible to the current user."""
     visible = await buildings_visible_to(user, db)
+
+    log_access_allowed(
+        user, action=AuditAction.LIST, resource_type="building", request=request,
+    )
+
     if not visible:
-        # Empty set → nothing to query. Skip the round-trip.
         return []
 
     stmt = (
@@ -88,20 +89,25 @@ async def list_buildings(
     ),
 )
 async def get_current(
+    request: Request,
     building_id: uuid.UUID,
     user: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> BuildingCurrent:
     """Return the latest snapshot for one building.
 
-    Order of checks is important:
-      1. Permission check (403 if not allowed) — guards against leaking
-         existence info to unauthorized users
+    Order of checks:
+      1. Permission check (403 + audit_log row if not allowed)
       2. Existence check (404 if not in DB)
       3. Data query against InfluxDB
     """
-    await _check_visibility(user, db, building_id)
+    await _check_visibility(user, db, building_id, AuditAction.VIEW, request)
     await _ensure_building_exists(db, building_id)
+
+    log_access_allowed(
+        user, action=AuditAction.VIEW, resource_type="building",
+        resource_id=building_id, request=request,
+    )
     return await get_latest_for_building(building_id)
 
 
@@ -118,6 +124,7 @@ async def get_current(
     ),
 )
 async def get_building_history(
+    request: Request,
     building_id: uuid.UUID,
     user: Annotated[CurrentUser, Depends(get_current_user)],
     db: Annotated[AsyncSession, Depends(get_session)],
@@ -138,13 +145,8 @@ async def get_building_history(
         ),
     ] = 60,
 ) -> BuildingHistory:
-    """Return a time-series for a building.
-
-    Guards against silly queries:
-      - end must be after start
-      - the requested range can't exceed 30 days (protects InfluxDB)
-    """
-    await _check_visibility(user, db, building_id)
+    """Return a time-series for a building."""
+    await _check_visibility(user, db, building_id, AuditAction.VIEW, request)
     await _ensure_building_exists(db, building_id)
 
     if start is not None and end is not None:
@@ -159,13 +161,15 @@ async def get_building_history(
                 detail="Requested range exceeds the 30-day maximum.",
             )
 
-    # Normalize tz-naive datetimes to UTC; FastAPI parses ISO strings
-    # but they can come in without timezone info.
     if start is not None and start.tzinfo is None:
         start = start.replace(tzinfo=timezone.utc)
     if end is not None and end.tzinfo is None:
         end = end.replace(tzinfo=timezone.utc)
 
+    log_access_allowed(
+        user, action=AuditAction.VIEW, resource_type="building.history",
+        resource_id=building_id, request=request,
+    )
     return await get_history(
         building_id,
         start=start,
@@ -179,18 +183,24 @@ async def _check_visibility(
     user: CurrentUser,
     db: AsyncSession,
     building_id: uuid.UUID,
+    action: AuditAction,
+    request: Request,
 ) -> None:
-    """Raise 403 if `building_id` is not visible to `user`.
+    """Raise 403 if `building_id` is not visible to `user`, logging the denial.
 
     Why 403 and not 404: returning 404 would leak the existence of
     buildings the user can't see (timing-based enumeration attacks).
-    Always returning the same 403 makes existence opaque.
+    Always returning 403 makes existence opaque.
     """
     visible = await buildings_visible_to(user, db)
     if building_id not in visible:
-        logger.warning(
-            "Permission denied: user %s (%s) requested building %s",
-            user.id, user.role.value, building_id,
+        await log_access_denied(
+            user=user,
+            action=action,
+            resource_type="building",
+            resource_id=building_id,
+            request=request,
+            detail=f"user role={user.role.value} not authorized for this building",
         )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
