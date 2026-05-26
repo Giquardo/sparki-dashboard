@@ -263,11 +263,11 @@ async def get_or_create_building(
     *,
     site: Site,
     name: str,
-    sigen_station_id: str,
+    sigen_system_id: str,
     installed_kwp: float = 6.0,
     battery_kwh: float = 10.0,
 ) -> Building:
-    stmt = select(Building).where(Building.sigen_station_id == sigen_station_id)
+    stmt = select(Building).where(Building.sigen_system_id == sigen_system_id)
     existing = await db.execute(stmt)
     bld = existing.scalar_one_or_none()
     if bld is not None:
@@ -278,13 +278,13 @@ async def get_or_create_building(
         id=uuid.uuid4(),
         site_id=site.id,
         name=name,
-        sigen_station_id=sigen_station_id,
+        sigen_system_id=sigen_system_id,
         installed_kwp=installed_kwp,
         battery_kwh=battery_kwh,
     )
     db.add(bld)
     await db.flush()
-    logger.info("Created building %r station=%s (id=%s)", name, sigen_station_id, bld.id)
+    logger.info("Created building %r system=%s (id=%s)", name, sigen_system_id, bld.id)
     return bld
 
 
@@ -403,14 +403,15 @@ async def main() -> None:
             address="Sint-Jansplein 1, 8900 Sigenburg",
         )
 
-        # Ten buildings
+        # Ten buildings — sigen_system_id is a placeholder until real
+        # Sigencloud systems are linked; Sigencloud's real IDs are numeric.
         buildings: list[Building] = []
         for n in range(1, 11):
             bld = await get_or_create_building(
                 db,
                 site=site,
                 name=f"Woning {n}",
-                sigen_station_id=f"MOCK-STATION-{n:03d}",
+                sigen_system_id=f"MOCK-SYSTEM-{n:03d}",
             )
             buildings.append(bld)
 

@@ -5,6 +5,7 @@ Provides:
   - `get_influx_client()` — returns a singleton InfluxDBClientAsync
   - `close_influx_client()` — graceful shutdown for lifespan
   - `ping_influx()`         — bool healthcheck
+  - `query_flux()`          — run a Flux query, get a list of records
 
 Why a singleton: the official client maintains an internal HTTP connection
 pool. Creating a new client per request would be wasteful.
@@ -13,7 +14,9 @@ pool. Creating a new client per request would be wasteful.
 from __future__ import annotations
 
 import logging
+from typing import Any
 
+from influxdb_client.client.flux_table import FluxRecord
 from influxdb_client.client.influxdb_client_async import InfluxDBClientAsync
 
 from app.config import settings
@@ -58,3 +61,46 @@ async def ping_influx() -> bool:
     except Exception as exc:  # noqa: BLE001 — broad catch is intentional for healthcheck
         logger.warning("InfluxDB ping failed: %s", exc)
         return False
+
+
+async def query_flux(
+    flux: str,
+    *,
+    params: dict[str, Any] | None = None,
+) -> list[FluxRecord]:
+    """Run a Flux query and return a flat list of records.
+
+    Each record exposes:
+      record.get_time()          → datetime (UTC)
+      record.get_value()         → field value
+      record.get_field()         → field name
+      record.get_measurement()   → measurement name
+      record.values              → dict of all columns (tags + system cols)
+      record["tag_name"]         → access a specific tag
+
+    Example:
+        rows = await query_flux('''
+            from(bucket: "energy")
+              |> range(start: -5m)
+              |> filter(fn: (r) => r["building_id"] == "abc")
+              |> last()
+        ''')
+        for r in rows:
+            print(r.get_field(), r.get_value(), r["building_id"])
+
+    Note: Flux's `params` is a Python feature that injects values
+    safely into queries — use it instead of f-strings to prevent
+    injection-like issues with tag values.
+    """
+    client = get_influx_client()
+    query_api = client.query_api()
+
+    tables = await query_api.query(query=flux, params=params)
+
+    # Flatten table -> records. Each table holds one series; we don't
+    # care about table boundaries here, only the records.
+    records: list[FluxRecord] = []
+    for table in tables:
+        records.extend(table.records)
+    return records
+

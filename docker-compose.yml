@@ -113,38 +113,49 @@ services:
   # ─── 4. Node-RED ─────────────────────────────────────────────────────
   # Headless ingestion worker. Admin UI is enabled in dev for flow editing,
   # but disabled in production via settings.js.
-  # NOTE: Custom Dockerfile + settings.js + flows komen in Fase 2.
-  # Voor nu starten we de stock image zonder admin password — uncomment
-  # zodra de flows + settings.js klaar zijn.
-  #
-  # node-red:
-  #   build: ./node-red
-  #   container_name: sparki-nodered
-  #   restart: unless-stopped
-  #   environment:
-  #     TZ: ${TZ}
-  #     POSTGRES_HOST: postgres
-  #     POSTGRES_PORT: 5432
-  #     POSTGRES_DB: ${POSTGRES_DB}
-  #     POSTGRES_USER: ${POSTGRES_USER}
-  #     POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-  #     INFLUXDB_URL: http://influxdb:8086
-  #     INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
-  #     INFLUXDB_ORG: ${INFLUXDB_ORG}
-  #     INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
-  #     SIGENCLOUD_BASE_URL: ${SIGENCLOUD_BASE_URL}
-  #     ENTSOE_API_TOKEN: ${ENTSOE_API_TOKEN}
-  #     ENTSOE_BIDDING_ZONE: ${ENTSOE_BIDDING_ZONE}
-  #   volumes:
-  #     - nodered-data:/data
-  #     - ./node-red/flows:/data/flows:ro
-  #   networks:
-  #     - sparki_net
-  #   depends_on:
-  #     postgres:
-  #       condition: service_healthy
-  #     influxdb:
-  #       condition: service_healthy
+  node-red:
+    build: ./node-red
+    container_name: sparki-nodered
+    restart: unless-stopped
+    environment:
+      TZ: ${TZ}
+      # Node-RED admin UI
+      NODERED_ADMIN_USER: ${NODERED_ADMIN_USER}
+      NODERED_ADMIN_PASSWORD_HASH: ${NODERED_ADMIN_PASSWORD_HASH}
+      NODERED_UI_ENABLED: ${NODERED_UI_ENABLED}
+      NODERED_CREDENTIAL_SECRET: ${WEBAPP_SECRET_KEY}   # reuse webapp secret for flow-cred encryption
+      # Connection info for downstream services (consumed by flow nodes)
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}
+      INFLUXDB_ORG: ${INFLUXDB_ORG}
+      INFLUXDB_BUCKET: ${INFLUXDB_BUCKET}
+      SIGENCLOUD_BASE_URL: ${SIGENCLOUD_BASE_URL}
+      ENTSOE_API_TOKEN: ${ENTSOE_API_TOKEN}
+      ENTSOE_BIDDING_ZONE: ${ENTSOE_BIDDING_ZONE}
+    volumes:
+      # Named volume holds runtime state including the live flows.json.
+      # On first boot, the image's entrypoint seeds /data/flows.json from
+      # the baked-in copy. After that, Node-RED owns it — edit via UI.
+      - nodered-data:/data
+      # settings.js is bind-mounted READ-ONLY so changes don't require a
+      # volume reset. Node-RED never writes to settings.js.
+      - ./node-red/settings.js:/data/settings.js:ro
+    networks:
+      - sparki_net
+    # Exposed to host on 127.0.0.1 only — UI is admin-only in dev.
+    # In production, set NODERED_UI_ENABLED=false and remove this port.
+    ports:
+      - "127.0.0.1:1880:1880"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      influxdb:
+        condition: service_healthy
 
   # ─── 5. FastAPI Webapp ───────────────────────────────────────────────
   webapp:

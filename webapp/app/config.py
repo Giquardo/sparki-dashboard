@@ -66,8 +66,8 @@ class Settings(BaseSettings):
     )
 
     # ─── Sigencloud (set per organization in DB, but base URL is global) ──
-    sigencloud_base_url: str = "https://api.sigencloud.com"
-    sigencloud_poll_interval_seconds: int = 60
+    sigencloud_base_url: str = "https://api-eu.sigencloud.com"
+    sigencloud_poll_interval_seconds: int = 300  # 5 min — Sigencloud rate-limit
 
     # ─── ENTSO-E ─────────────────────────────────────────────────────
     entsoe_api_token: SecretStr = SecretStr("")

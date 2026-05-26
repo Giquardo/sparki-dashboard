@@ -44,9 +44,10 @@ class Building(Base, TimestampMixin):
     name: Mapped[str] = mapped_column(String(200), nullable=False)
 
     # ─── Sigencloud identity ─────────────────────────────────────────
-    # Unique-per-installation identifier from Sigencloud. Node-RED uses
-    # this in API calls. Unique across the whole DB.
-    sigen_station_id: Mapped[str | None] = mapped_column(
+    # Unique-per-installation identifier from Sigencloud (Sigencloud calls
+    # this `systemId`). Node-RED uses this in API calls. Unique across the
+    # whole DB. To find it: mySigen app → Settings → tap three-dot icon.
+    sigen_system_id: Mapped[str | None] = mapped_column(
         String(100), nullable=True, unique=True, index=True,
     )
 
@@ -64,7 +65,7 @@ class Building(Base, TimestampMixin):
     )
 
     def __repr__(self) -> str:
-        return f"<Building {self.name!r} station={self.sigen_station_id}>"
+        return f"<Building {self.name!r} system={self.sigen_system_id}>"
 
 
 class BuildingAssignment(Base, TimestampMixin):

@@ -24,6 +24,7 @@ from fastapi.responses import JSONResponse
 from app import __version__
 from app.auth.keycloak import warm_jwks_cache
 from app.auth.routes import router as auth_router
+from app.buildings.routes import router as buildings_router
 from app.config import settings
 from app.core.healthz import collect_health
 from app.database import dispose_engine
@@ -136,3 +137,4 @@ async def root() -> dict[str, str]:
 
 # ─── Router registration ─────────────────────────────────────────────
 app.include_router(auth_router)
+app.include_router(buildings_router)
