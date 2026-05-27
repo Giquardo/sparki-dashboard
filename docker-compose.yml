@@ -192,9 +192,14 @@ services:
     ports:
       - "127.0.0.1:8000:8000"
     # Mount scripts read-only so we can run them via `docker compose exec`
-    # without rebuilding the image.
+    # without rebuilding the image. Templates + static are also bind-mounted
+    # read-only in dev for hot-reload — edits show on next browser refresh
+    # without an image rebuild. The same files are baked into the image
+    # via the Dockerfile so production runs without bind mounts.
     volumes:
       - ./scripts:/app/scripts:ro
+      - ./webapp/templates:/app/templates:ro
+      - ./webapp/static:/app/static:ro
     depends_on:
       postgres:
         condition: service_healthy

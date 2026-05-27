@@ -1,0 +1,132 @@
+{#
+  Base layout for Sparki dashboard.
+
+  Style decisions:
+    - Tailwind via CDN (no build pipeline, per project decision log)
+    - Tailwind 'tailwind.config' block extends the theme with Sparki tokens
+      (navy / red / sparki-white) so utility classes like bg-sparki-navy
+      bg-sparki-red, text-sparki-white work everywhere
+    - Inter from Google Fonts CDN — clean modern sans-serif, close
+      visual match to the sparki.be wordmark
+    - HTMX 1.9 for 30s polling of live tiles in Step 3.3+
+    - Chart.js 4 for the energy/price graphs in Step 3.4+
+    - Dark theme by default (matches sparki.be's marketing site)
+
+  Blocks subclassed pages can override:
+    {% block title %}        page <title>
+    {% block page_title %}   visible h1 in the content header
+    {% block content %}      main content area
+    {% block extra_head %}   per-page <head> additions
+    {% block extra_scripts %}per-page scripts at the bottom
+
+  The {% block content %} is wrapped in <main> by this template — pages
+  should NOT include their own <main> tag.
+#}
+<!doctype html>
+<html lang="nl" class="h-full bg-sparki-navy text-sparki-white">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="dark">
+
+    <title>{% block title %}Sparki Dashboarding{% endblock %}</title>
+
+    {# ─── Tailwind via CDN ─────────────────────────────────────── #}
+    <script src="https://cdn.tailwindcss.com?plugins=forms,typography"></script>
+    <script>
+        // Extend Tailwind with Sparki brand tokens. Because we use the CDN
+        // (no PostCSS build), the only way to add custom utilities is via
+        // the global `tailwind.config` object — set BEFORE any utilities
+        // are evaluated. Keep this block tiny; anything bigger goes into
+        // /static/css/app.css.
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    colors: {
+                        'sparki-navy':       '#0A1F44',  // page background
+                        'sparki-navy-light': '#15295E',  // elevated surfaces
+                        'sparki-navy-soft':  '#1B3270',  // hover on dark
+                        'sparki-red':        '#E63946',  // CTAs, accents
+                        'sparki-red-dark':   '#C02D3A',  // CTA hover
+                        'sparki-white':      '#FFFFFF',
+                        'sparki-gray-200':   '#E5E7EB',
+                        'sparki-gray-500':   '#6B7280',
+                        'sparki-success':    '#34D399',
+                        'sparki-warning':    '#F59E0B',
+                        'sparki-danger':     '#EF4444',
+                    },
+                    fontFamily: {
+                        // Inter is loaded via Google Fonts below. Falls back
+                        // through system sans-serif if the CDN is blocked.
+                        sans: ['Inter', 'ui-sans-serif', 'system-ui',
+                               '-apple-system', 'Segoe UI', 'Roboto',
+                               'sans-serif'],
+                    },
+                    boxShadow: {
+                        'sparki': '0 4px 24px -8px rgba(230, 57, 70, 0.35)',
+                    },
+                },
+            },
+        };
+    </script>
+
+    {# ─── Inter font ───────────────────────────────────────────── #}
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap"
+          rel="stylesheet">
+
+    {# ─── HTMX + Chart.js ──────────────────────────────────────── #}
+    <script src="https://unpkg.com/htmx.org@1.9.12"
+            integrity="sha384-ujb1lZYygJmzgSwoxRggbCHcjc0rB2XoQrxeTUQyRjrOnlCoYta87iKBWq3EsdM2"
+            crossorigin="anonymous" defer></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.3/dist/chart.umd.min.js"
+            defer></script>
+
+    {# ─── App-specific CSS (kept tiny) ─────────────────────────── #}
+    <link rel="stylesheet" href="/static/css/app.css">
+
+    {% block extra_head %}{% endblock %}
+</head>
+<body class="font-sans h-full antialiased">
+
+<div class="flex h-full min-h-screen">
+
+    {# ─── Sidebar ─────────────────────────────────────────────── #}
+    {% include "partials/sidebar.html" %}
+
+    {# ─── Main column (header + content) ──────────────────────── #}
+    <div class="flex-1 flex flex-col min-w-0">
+
+        {% include "partials/header.html" %}
+
+        <main class="flex-1 px-6 md:px-10 py-8 overflow-y-auto">
+            {% if page_title is defined and page_title %}
+                <h1 class="text-3xl md:text-4xl font-extrabold mb-8 tracking-tight">
+                    {{ page_title }}<span class="text-sparki-red">.</span>
+                </h1>
+            {% endif %}
+
+            {% block content %}{% endblock %}
+        </main>
+
+        <footer class="px-6 md:px-10 py-4 text-xs text-sparki-gray-500
+                       border-t border-sparki-navy-light flex justify-between">
+            <span>Sparki Dashboarding v{{ app_version }}</span>
+            <span>
+                {% if app_environment != "production" %}
+                    <span class="px-2 py-0.5 rounded bg-sparki-red/15
+                                 text-sparki-red font-semibold uppercase
+                                 tracking-wider">
+                        {{ app_environment }}
+                    </span>
+                {% endif %}
+            </span>
+        </footer>
+    </div>
+</div>
+
+{% block extra_scripts %}{% endblock %}
+</body>
+</html>

@@ -49,6 +49,14 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
+
+# ─── UI assets (Phase 3+) ────────────────────────────────────────────
+# Jinja2 templates and static files for the HTML dashboard. Baked into
+# the image so the container stays self-contained — docker-compose adds
+# bind-mounts on top during dev for hot-reload, which take precedence.
+COPY templates ./templates
+COPY static ./static
+
 # Tests are included when INSTALL_DEV=true (default). For production
 # images you can mount/skip them; keeping them in the image is fine
 # for our developer-friendly use case.

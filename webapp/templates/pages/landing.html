@@ -1,0 +1,70 @@
+{% extends "base.html" %}
+
+{% block title %}Welkom — Sparki Dashboarding{% endblock %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto py-12">
+    <p class="text-sparki-red font-bold uppercase tracking-widest text-sm
+              mb-4">
+        Dashboarding-platform
+    </p>
+    <h1 class="text-5xl md:text-6xl font-black tracking-tight leading-none
+               mb-6">
+        Energie.<span class="text-sparki-red">.</span><br>
+        <span class="text-sparki-gray-200 font-extrabold">
+            Maar dan helder.
+        </span>
+    </h1>
+    <p class="text-lg text-sparki-gray-200 mb-10 leading-relaxed">
+        Multi-tenant inzicht in Sigenergy-installaties.
+        Eén platform voor PV, batterij, EV en netuitwisseling —
+        gekoppeld aan day-ahead marktprijzen.
+    </p>
+
+    <a href="/login"
+       class="inline-flex items-center gap-2 px-6 py-3 rounded-md
+              bg-sparki-red hover:bg-sparki-red-dark
+              text-sparki-white font-semibold shadow-sparki
+              transition-colors">
+        Inloggen
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+             viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"
+             class="w-5 h-5">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M17.25 8.25 21 12m0 0-3.75 3.75M21 12H3"/>
+        </svg>
+    </a>
+
+    {% if not is_production %}
+    <div class="mt-12 p-4 rounded-lg bg-sparki-navy-light
+                border border-sparki-red/30">
+        <p class="text-xs uppercase font-bold tracking-widest
+                  text-sparki-red mb-2">Development shortcut</p>
+        <p class="text-sm text-sparki-gray-200 mb-3">
+            Test het dashboard direct als een van de seed-gebruikers
+            (Keycloak-redirect komt in stap 3.2):
+        </p>
+        <div class="flex flex-wrap gap-2">
+            <a href="/dev/login?as_=staff"
+               class="px-3 py-1.5 rounded-md text-xs font-semibold
+                      bg-sparki-navy-soft hover:bg-sparki-red
+                      transition-colors">
+                Als Sparki staff
+            </a>
+            <a href="/dev/login?as_=owner"
+               class="px-3 py-1.5 rounded-md text-xs font-semibold
+                      bg-sparki-navy-soft hover:bg-sparki-red
+                      transition-colors">
+                Als site-eigenaar
+            </a>
+            <a href="/dev/login?as_=tenant"
+               class="px-3 py-1.5 rounded-md text-xs font-semibold
+                      bg-sparki-navy-soft hover:bg-sparki-red
+                      transition-colors">
+                Als bewoner
+            </a>
+        </div>
+    </div>
+    {% endif %}
+</div>
+{% endblock %}

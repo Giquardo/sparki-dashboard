@@ -1,0 +1,48 @@
+/* ============================================================
+ * Sparki dashboard — custom CSS overrides
+ * ============================================================
+ * Keep this file SMALL. If a rule can be expressed with Tailwind
+ * utility classes, prefer that. This file exists for things
+ * the CDN-flavor Tailwind cannot do (custom scrollbars, focus
+ * outlines, plugin-free animations, ...).
+ * ============================================================ */
+
+/* Scrollbar styling for the dark theme.
+   Webkit-only — Firefox falls back to its own thin theme via
+   the scrollbar-* properties below. */
+::-webkit-scrollbar          { width: 10px; height: 10px; }
+::-webkit-scrollbar-track    { background: #0A1F44; }
+::-webkit-scrollbar-thumb    {
+    background: #15295E;
+    border-radius: 6px;
+    border: 2px solid #0A1F44;
+}
+::-webkit-scrollbar-thumb:hover { background: #1B3270; }
+
+html {
+    scrollbar-width: thin;
+    scrollbar-color: #15295E #0A1F44;
+}
+
+/* Smoother focus ring across the dashboard. */
+:focus-visible {
+    outline: 2px solid #E63946;
+    outline-offset: 2px;
+    border-radius: 4px;
+}
+
+/* HTMX progress indicator hook — used by Step 3.3+ live tiles to
+   show a subtle "refreshing" pulse without layout shift. */
+[hx-indicator] .htmx-indicator {
+    opacity: 0;
+    transition: opacity 200ms ease-in-out;
+}
+.htmx-request .htmx-indicator,
+.htmx-request.htmx-indicator {
+    opacity: 1;
+}
+
+/* Reduced-motion: kill the HTMX pulse for users who asked for less motion. */
+@media (prefers-reduced-motion: reduce) {
+    .htmx-indicator { transition: none; }
+}

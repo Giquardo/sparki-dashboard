@@ -1,0 +1,75 @@
+{#
+  Top header bar. Shows:
+    - Mobile menu button (placeholder; wires up to a drawer in Step 3.2)
+    - Logged-in user's display name + role badge
+    - Logout link
+
+  If no user is logged in (e.g. on /login or anonymous landing), shows
+  an "Inloggen" link instead.
+#}
+<header class="flex items-center justify-between gap-4 px-6 md:px-10 py-4
+               bg-sparki-navy-light border-b border-sparki-navy-light">
+
+    {# Left: mobile menu placeholder (full impl in 3.2) #}
+    <button type="button"
+            class="md:hidden p-2 -ml-2 rounded-md text-sparki-gray-200
+                   hover:bg-sparki-navy-soft"
+            aria-label="Menu openen">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+             stroke-width="2" stroke="currentColor" class="w-6 h-6">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M3.75 6.75h16.5M3.75 12h16.5m-16.5 5.25h16.5"/>
+        </svg>
+    </button>
+
+    {# Spacer on desktop pushes user dropdown to the right #}
+    <div class="flex-1"></div>
+
+    {# Right: user info or login CTA #}
+    {% if user %}
+        <div class="flex items-center gap-4">
+            <div class="text-right hidden sm:block leading-tight">
+                <p class="text-sm font-semibold text-sparki-white">
+                    {{ user.display_name }}
+                </p>
+                <p class="text-xs text-sparki-gray-500">
+                    {{ user.email }}
+                </p>
+            </div>
+
+            <span class="px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider
+                         rounded-md
+                         {% if user.is_sparki_staff %}
+                             bg-sparki-red text-sparki-white
+                         {% elif user.is_site_owner %}
+                             bg-sparki-navy-soft text-sparki-white
+                                ring-1 ring-sparki-red/40
+                         {% else %}
+                             bg-sparki-navy-soft text-sparki-gray-200
+                         {% endif %}">
+                {{ user.role | role_label }}
+            </span>
+
+            <a href="/logout"
+               class="text-sm font-medium text-sparki-gray-200
+                      hover:text-sparki-white transition-colors
+                      px-3 py-1.5 rounded-md hover:bg-sparki-navy-soft">
+                Uitloggen
+            </a>
+        </div>
+    {% else %}
+        <a href="/login"
+           class="inline-flex items-center gap-2 px-4 py-2 rounded-md
+                  bg-sparki-red hover:bg-sparki-red-dark
+                  text-sparki-white text-sm font-semibold
+                  transition-colors shadow-sparki">
+            Inloggen
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                 viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"
+                 class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M17.25 8.25 21 12m0 0-3.75 3.75M21 12H3"/>
+            </svg>
+        </a>
+    {% endif %}
+</header>

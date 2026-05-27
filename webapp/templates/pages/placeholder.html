@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+
+{% block title %}Portfolio — Sparki Dashboarding{% endblock %}
+
+{% block content %}
+<div class="space-y-6">
+
+    {# ─── Welkom card ──────────────────────────────────────────── #}
+    <section class="p-6 rounded-xl bg-sparki-navy-light
+                    border border-sparki-navy-soft">
+        <p class="text-xs uppercase tracking-widest font-bold
+                  text-sparki-red mb-2">
+            Stap 3.1 — Layout shell
+        </p>
+        <h2 class="text-2xl font-bold mb-2">
+            Hallo {{ user.display_name }}<span class="text-sparki-red">.</span>
+        </h2>
+        <p class="text-sparki-gray-200 leading-relaxed">
+            Sessie actief als <strong>{{ user.role | role_label }}</strong>.
+            De portfolio-lijst landt in stap 3.3, de gebouw-detailpagina
+            in stap 3.4.
+        </p>
+    </section>
+
+    {# ─── Coming-soon grid ─────────────────────────────────────── #}
+    <section>
+        <h3 class="text-sm uppercase tracking-wider font-bold
+                   text-sparki-gray-500 mb-3">
+            Wat verschijnt hier binnenkort
+        </h3>
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            <div class="p-5 rounded-lg bg-sparki-navy-light
+                        border border-sparki-navy-soft">
+                <p class="text-xs uppercase text-sparki-red font-semibold
+                          tracking-wider mb-2">Stap 3.3</p>
+                <h4 class="font-semibold mb-1">Portfolio-overzicht</h4>
+                <p class="text-sm text-sparki-gray-200">
+                    Kaart per zichtbaar gebouw met live samenvatting.
+                </p>
+            </div>
+            <div class="p-5 rounded-lg bg-sparki-navy-light
+                        border border-sparki-navy-soft">
+                <p class="text-xs uppercase text-sparki-red font-semibold
+                          tracking-wider mb-2">Stap 3.4</p>
+                <h4 class="font-semibold mb-1">Gebouwdetail + grafieken</h4>
+                <p class="text-sm text-sparki-gray-200">
+                    Live-tegels (HTMX 30s polling) en Chart.js grafieken.
+                </p>
+            </div>
+            <div class="p-5 rounded-lg bg-sparki-navy-light
+                        border border-sparki-navy-soft">
+                <p class="text-xs uppercase text-sparki-red font-semibold
+                          tracking-wider mb-2">Stap 4</p>
+                <h4 class="font-semibold mb-1">Live Sigencloud-data</h4>
+                <p class="text-sm text-sparki-gray-200">
+                    Zodra de klant-token beschikbaar is.
+                </p>
+            </div>
+        </div>
+    </section>
+
+    {# ─── Debug info (only in dev) ─────────────────────────────── #}
+    {% if not is_production %}
+    <section class="p-5 rounded-lg bg-sparki-navy-light/50
+                    border border-dashed border-sparki-navy-soft">
+        <p class="text-xs uppercase tracking-widest font-bold
+                  text-sparki-gray-500 mb-3">Session debug</p>
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-y-1 text-sm">
+            <dt class="text-sparki-gray-500">User ID</dt>
+            <dd class="font-mono text-xs break-all">{{ user.id }}</dd>
+            <dt class="text-sparki-gray-500">Organization ID</dt>
+            <dd class="font-mono text-xs break-all">{{ user.organization_id }}</dd>
+            <dt class="text-sparki-gray-500">Role</dt>
+            <dd class="font-mono text-xs">{{ user.role.value }}</dd>
+        </dl>
+    </section>
+    {% endif %}
+</div>
+{% endblock %}

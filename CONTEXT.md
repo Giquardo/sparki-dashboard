@@ -234,6 +234,35 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
 - [x] Test fixtures: function-scoped client to handle
       pytest-asyncio v0.24's per-test event loop
 - [x] Project ahead of schedule — Fase 2 done 4 days early
+- [x] **Step 3.1 — Tailwind + Jinja2 base layout** *(done 28 May, 4 days early)*
+- [x] New `app/web/` package: `session.py`, `templates_env.py`,
+        `routes.py` + `__init__.py`
+  - [x] Sparki dark theme (navy `#0A1F44` / red `#E63946`) matching
+        sparki.be marketing site — Tailwind via CDN with custom tokens
+  - [x] Inter via Google Fonts, HTMX 1.9 + Chart.js 4 pre-loaded
+  - [x] Role-aware sidebar (Portfolio + Gebouwen + Prijzen for all;
+        Gebruikers for staff/owner; Instellingen for staff only)
+  - [x] Signed-cookie session via `itsdangerous` (HMAC, payload =
+        user UUID only, 8h TTL, `HttpOnly` + `SameSite=Lax`,
+        `Secure` in prod)
+  - [x] Dual-auth pattern: `get_session_user_optional/_required` for
+        HTML routes; existing `get_current_user` (Bearer) untouched
+        for JSON API
+  - [x] Dev-only stub login at `/dev/login?as_=staff|owner|tenant`
+        (404 in production)
+  - [x] `/api` JSON descriptor (previously at `/`); HTML now owns root
+  - [x] StaticFiles mount at `/static`
+  - [x] Templates + static bind-mounted in dev (hot-reload) and
+        baked into image for prod (Dockerfile `COPY` lines)
+  - [x] 6 new integration tests in `tests/test_web_layout.py`
+        (anonymous render, per-role dev login, role-aware sidebar,
+        logout cookie clearing, tampered-cookie resistance)
+  - [x] **All 45 tests passing** (39 existing + 6 new)
+  - [x] **Bug caught + fixed in initial delivery:** the `/login`
+        route had a union return type `HTMLResponse | RedirectResponse`
+        which FastAPI rejects unless `response_model=None` is set.
+        Lesson logged below (gotcha #9).
+
 
 **In progress:**
 - [ ] Waiting for ENTSO-E API token approval (mail sent — typically
@@ -241,11 +270,17 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
 - [ ] Waiting for Sigencloud API token from customer
 
 **Next session:**
-- [ ] Step 3.1 — Tailwind + Jinja2 base layout (header, sidebar,
-      content area, user-info dropdown)
-- [ ] Step 3.2 — Login + logout flow (Keycloak redirect)
-- [ ] Step 3.3 — Portfolio page (`GET /` → list of buildings the
-      user can see)
+- [ ] Step 3.2 — Real Keycloak Authorization Code + PKCE flow
+  - [ ] `/login` builds the Keycloak auth URL with `state` + PKCE
+        `code_verifier` (stash both in a short-lived signed cookie)
+  - [ ] `/auth/callback` exchanges `code` → tokens, calls
+        `set_session_cookie(user.id)`, redirects to original target
+  - [ ] `/logout` also hits Keycloak's `end_session_endpoint`
+  - [ ] Remove `/dev/login` (or keep behind `ENVIRONMENT=development`
+        for thesis-demo convenience)
+  - [ ] Mobile sidebar drawer (the header hamburger is a placeholder)
+- [ ] Step 3.3 — Portfolio page (`GET /` → live list of buildings the
+      user can see, rendered from `/api/buildings` data)
 
 ---
 
@@ -305,7 +340,16 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
   `docker compose exec -u root node-red sh -c "cp ..."` after deploy.
 - **Audit log rollback bug:** request session rolls back on
   HTTPException. Audit row needs OWN session+commit. See decision #6.
-
+- **FastAPI rejects route handlers whose return type is a Union of
+  Response subclasses.** Symptom: `FastAPIError: Invalid args for
+  response field! Hint: check that starlette.responses.HTMLResponse
+  | starlette.responses.RedirectResponse is a valid Pydantic field
+  type.` Fix: add `response_model=None` to the `@router.get(...)`
+  decorator. The error fires at decoration time → uvicorn fails to
+  import the app → container crash-loops on startup. Caught during
+  Step 3.1 delivery on the `/login` route; static syntax checks
+  (`ast.parse`) miss this because the validation only runs when the
+  decorator actually executes.
 ---
 
 ## 16. PowerShell Convenience Functions
