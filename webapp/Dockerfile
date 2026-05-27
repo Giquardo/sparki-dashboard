@@ -23,10 +23,25 @@ COPY pyproject.toml ./
 # Lockfile is optioneel bij eerste build — uv genereert er een als hij ontbreekt.
 COPY uv.lock* ./
 
-# Dependencies installeren (zonder de app zelf, alleen externals)
+# Production dependencies eerst — gebruikt frozen lockfile voor reproducibility.
 RUN --mount=type=cache,target=/root/.cache/uv \
     uv sync --frozen --no-install-project --no-dev || \
     uv sync --no-install-project --no-dev
+
+# Dev tools als aparte laag. uv sync --frozen respecteert de lock file
+# en negeert optional-dependencies, dus we installeren expliciet met
+# `uv pip install` in de venv die we net hebben opgebouwd.
+#
+# INSTALL_DEV=false in productie levert een ~30MB kleinere image op:
+#   docker build --build-arg INSTALL_DEV=false ...
+ARG INSTALL_DEV=true
+RUN --mount=type=cache,target=/root/.cache/uv \
+    if [ "$INSTALL_DEV" = "true" ]; then \
+        uv pip install --python /app/.venv/bin/python \
+            pytest==8.3.4 \
+            pytest-asyncio==0.24.0 \
+            pytest-cov==6.0.0 ; \
+    fi
 
 # App code erbij. Geen tweede `uv sync` nodig: package=false in pyproject.toml,
 # dus uv installeert alleen dependencies (al gebeurd boven), niet de webapp zelf.
@@ -34,6 +49,10 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 COPY app ./app
 COPY migrations ./migrations
 COPY alembic.ini ./
+# Tests are included when INSTALL_DEV=true (default). For production
+# images you can mount/skip them; keeping them in the image is fine
+# for our developer-friendly use case.
+COPY tests ./tests
 
 # ─── Stage 2: runtime ────────────────────────────────────────────────
 FROM python:3.12-slim AS runtime

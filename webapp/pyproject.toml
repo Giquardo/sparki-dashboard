@@ -18,7 +18,6 @@ dependencies = [
     "python-multipart>=0.0.12",       # form parsing
 
     # Settings & validation
-    # Settings & validation
     "pydantic[email]>=2.9.0",          # [email] adds email-validator for EmailStr
     "pydantic-settings>=2.6.0",
 
@@ -95,5 +94,12 @@ plugins = ["pydantic.mypy"]
 # ─── Pytest ──────────────────────────────────────────────────────────
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "session"
 testpaths = ["tests"]
-addopts = "-v --cov=app --cov-report=term-missing"
+# Cache to /tmp because /app is not writeable as the non-root sparki user.
+cache_dir = "/tmp/.pytest_cache"
+addopts = "-v --cov=app --cov-report=term-missing --override-ini=cache_dir=/tmp/.pytest_cache"
+
+# ─── Coverage ────────────────────────────────────────────────────────
+[tool.coverage.run]
+data_file = "/tmp/.coverage"
