@@ -4,7 +4,7 @@
     "type": "tab",
     "label": "Sparki Mock Ingestion",
     "disabled": false,
-    "info": "## Sparki Mock Ingestion Flow\n\nEvery 60 seconds:\n1. Queries Postgres for all active buildings + org/site context\n2. Generates realistic mock energy data per building\n3. Writes to InfluxDB v2 via HTTP POST /api/v2/write\n\n### Architecture\n\n**Why HTTP instead of a palette node?**\n- No vendor-specific dependencies\n- Same pattern we will use for Sigencloud API later\n- Easier to debug: raw request/response visible\n\n### Setup\n\n1. Open the **HTTP request** node\n2. Click the pencil next to **Use authentication**\n3. Set type to **bearer authentication**\n4. Paste the InfluxDB token from `.env`\n5. Click Update, Done, then Deploy\n\nThe Debug node shows the response — you should see HTTP 204 on success."
+    "info": "## Sparki Mock Ingestion Flow\n\nEvery 60 seconds:\n1. Queries Postgres for all active buildings + org/site context\n2. Generates realistic mock energy data per building\n3. Writes to InfluxDB v2 via HTTP POST /api/v2/write\n\n### Setup\n\nThe **POST /api/v2/write** node needs a Bearer token in its\nAuthentication section. Get it from `.env` (INFLUXDB_TOKEN)."
   },
   {
     "id": "trigger-60s",
@@ -69,27 +69,27 @@
     "type": "function",
     "z": "sparki-tab-main",
     "name": "Generate mock data",
-    "func": "// For each building, generate one realistic snapshot.\n// Output: array of point-objects (consumed by the next node).\n//\n// Field names align with Sigencloud's official OpenAPI fields:\n//   pvPower       -> pv_kw\n//   loadPower     -> load_kw\n//   evPower       -> ev_charger_kw\n//   heatPumpPower -> heatpump_kw\n//   batteryPower  -> battery_kw   (positive=charging)\n//   batterySoc    -> battery_soc\n//   gridPower     -> grid_kw      (positive=selling)\n\nconst rows = msg.payload || [];\nconst now = new Date();\nconst hour = now.getHours() + now.getMinutes() / 60;\n\nfunction pvFactor(h) {\n    if (h < 6 || h > 21) return 0;\n    const t = (h - 6) / 15;\n    return Math.max(0, Math.sin(Math.PI * t));\n}\n\nconst soc = flow.get('soc') || {};\nconst points = [];\n\nfor (const row of rows) {\n    const bid = row.building_id;\n    const installed = parseFloat(row.installed_kwp) || 6.0;\n\n    const pv = +(installed * pvFactor(hour) * (0.85 + Math.random() * 0.2)).toFixed(3);\n    const eveningBoost = (hour > 18 && hour < 22) ? 0.8 : 0;\n    const load = +(0.4 + Math.random() * 0.6 + eveningBoost).toFixed(3);\n    const ev = (hour > 17 && hour < 23 && Math.random() > 0.5) ? 3.5 : 0;\n    const heatpump = ((hour < 8 || hour > 18) && Math.random() > 0.4)\n        ? +(1 + Math.random() * 1).toFixed(3) : 0;\n\n    if (soc[bid] === undefined) soc[bid] = 50 + Math.random() * 30;\n    soc[bid] = Math.max(10, Math.min(95, soc[bid] + (Math.random() - 0.5) * 3));\n\n    const totalLoad = load + ev + heatpump;\n    const surplus = pv - totalLoad;\n    let battery = 0;\n    if (surplus > 0.3 && soc[bid] < 90) battery = Math.min(surplus, 3.0);\n    else if (surplus < -0.3 && soc[bid] > 20) battery = Math.max(surplus, -3.0);\n    battery = +battery.toFixed(3);\n\n    const grid = +(pv - totalLoad - Math.max(0, battery)).toFixed(3);\n    const exportKw = grid > 0 ?  grid : 0;\n    const importKw = grid < 0 ? -grid : 0;\n    const selfConsumption = +Math.max(0,\n        Math.min(pv, totalLoad + Math.max(0, battery))\n    ).toFixed(3);\n\n    points.push({\n        measurement: 'sigen',\n        tags: {\n            org_id: row.org_id,\n            site_id: row.site_id,\n            building_id: bid,\n            source: 'mock',\n        },\n        fields: {\n            pv_kw: pv,\n            load_kw: load,\n            ev_charger_kw: ev,\n            heatpump_kw: heatpump,\n            battery_kw: battery,\n            battery_soc: +soc[bid].toFixed(1),\n            grid_kw: grid,\n            export_kw: exportKw,\n            import_kw: importKw,\n            self_consumption_kw: selfConsumption,\n        },\n    });\n}\n\nflow.set('soc', soc);\nnode.status({ fill: 'green', shape: 'dot', text: `${points.length} buildings @ ${now.toLocaleTimeString()}` });\n\nmsg.payload = points;\nreturn msg;",
+    "func": "const rows = msg.payload || [];\nconst now = new Date();\nconst hour = now.getHours() + now.getMinutes() / 60;\n\nfunction pvFactor(h) {\n    if (h < 6 || h > 21) return 0;\n    const t = (h - 6) / 15;\n    return Math.max(0, Math.sin(Math.PI * t));\n}\n\nconst soc = flow.get('soc') || {};\nconst points = [];\n\nfor (const row of rows) {\n    const bid = row.building_id;\n    const installed = parseFloat(row.installed_kwp) || 6.0;\n\n    const pv = +(installed * pvFactor(hour) * (0.85 + Math.random() * 0.2)).toFixed(3);\n    const eveningBoost = (hour > 18 && hour < 22) ? 0.8 : 0;\n    const load = +(0.4 + Math.random() * 0.6 + eveningBoost).toFixed(3);\n    const ev = (hour > 17 && hour < 23 && Math.random() > 0.5) ? 3.5 : 0;\n    const heatpump = ((hour < 8 || hour > 18) && Math.random() > 0.4)\n        ? +(1 + Math.random() * 1).toFixed(3) : 0;\n\n    if (soc[bid] === undefined) soc[bid] = 50 + Math.random() * 30;\n    soc[bid] = Math.max(10, Math.min(95, soc[bid] + (Math.random() - 0.5) * 3));\n\n    const totalLoad = load + ev + heatpump;\n    const surplus = pv - totalLoad;\n    let battery = 0;\n    if (surplus > 0.3 && soc[bid] < 90) battery = Math.min(surplus, 3.0);\n    else if (surplus < -0.3 && soc[bid] > 20) battery = Math.max(surplus, -3.0);\n    battery = +battery.toFixed(3);\n\n    const grid = +(pv - totalLoad - Math.max(0, battery)).toFixed(3);\n    const exportKw = grid > 0 ?  grid : 0;\n    const importKw = grid < 0 ? -grid : 0;\n    const selfConsumption = +Math.max(0,\n        Math.min(pv, totalLoad + Math.max(0, battery))\n    ).toFixed(3);\n\n    points.push({\n        measurement: 'sigen',\n        tags: { org_id: row.org_id, site_id: row.site_id, building_id: bid, source: 'mock' },\n        fields: {\n            pv_kw: pv, load_kw: load, ev_charger_kw: ev, heatpump_kw: heatpump,\n            battery_kw: battery, battery_soc: +soc[bid].toFixed(1),\n            grid_kw: grid, export_kw: exportKw, import_kw: importKw,\n            self_consumption_kw: selfConsumption,\n        },\n    });\n}\n\nflow.set('soc', soc);\nnode.status({ fill: 'green', shape: 'dot', text: `${points.length} buildings @ ${now.toLocaleTimeString()}` });\nmsg.payload = points;\nreturn msg;",
     "outputs": 1,
     "noerr": 0,
     "x": 560,
     "y": 120,
-    "wires": [["fn-line-protocol"]]
+    "wires": [["fn-energy-line-protocol"]]
   },
   {
-    "id": "fn-line-protocol",
+    "id": "fn-energy-line-protocol",
     "type": "function",
     "z": "sparki-tab-main",
     "name": "Format Line Protocol",
-    "func": "// Convert array of points into InfluxDB Line Protocol text.\n//\n// Format per line:\n//   measurement,tag1=v1,tag2=v2 field1=value1,field2=value2 timestamp_ms\n//\n// Reference: https://docs.influxdata.com/influxdb/v2/reference/syntax/line-protocol/\n//\n// Note:\n//   - Tag values are escaped: spaces, commas, equals signs need \\\n//   - Field strings need double-quote wrapping (we have only numerics)\n//   - Timestamp in ms (matches precision=ms in the URL we POST to)\n\nconst points = msg.payload || [];\nif (points.length === 0) {\n    node.status({ fill: 'yellow', shape: 'ring', text: 'no points' });\n    return null;  // skip empty batches\n}\n\nconst tsMs = Date.now();\n\nfunction escapeTag(value) {\n    // Tag keys and values: escape commas, equals, spaces\n    return String(value).replace(/([,= ])/g, '\\\\$1');\n}\n\nconst lines = points.map(p => {\n    const tags = Object.entries(p.tags)\n        .map(([k, v]) => `${escapeTag(k)}=${escapeTag(v)}`)\n        .join(',');\n    const fields = Object.entries(p.fields)\n        .map(([k, v]) => `${k}=${v}`)\n        .join(',');\n    return `${p.measurement},${tags} ${fields} ${tsMs}`;\n});\n\nmsg.payload = lines.join('\\n');\nmsg.headers = { 'Content-Type': 'text/plain; charset=utf-8' };\n\nnode.status({ fill: 'green', shape: 'dot', text: `${points.length} lines built` });\nreturn msg;",
+    "func": "const points = msg.payload || [];\nif (points.length === 0) {\n    node.status({ fill: 'yellow', shape: 'ring', text: 'no points' });\n    return null;\n}\nconst tsMs = Date.now();\nfunction escapeTag(value) {\n    return String(value).replace(/([,= ])/g, '\\\\$1');\n}\nconst lines = points.map(p => {\n    const tags = Object.entries(p.tags).map(([k, v]) => `${escapeTag(k)}=${escapeTag(v)}`).join(',');\n    const fields = Object.entries(p.fields).map(([k, v]) => `${k}=${v}`).join(',');\n    return `${p.measurement},${tags} ${fields} ${tsMs}`;\n});\nmsg.payload = lines.join('\\n');\nmsg.headers = { 'Content-Type': 'text/plain; charset=utf-8' };\nnode.status({ fill: 'green', shape: 'dot', text: `${points.length} lines built` });\nreturn msg;",
     "outputs": 1,
     "noerr": 0,
     "x": 800,
     "y": 120,
-    "wires": [["http-write-influx"]]
+    "wires": [["http-write-influx-energy"]]
   },
   {
-    "id": "http-write-influx",
+    "id": "http-write-influx-energy",
     "type": "http request",
     "z": "sparki-tab-main",
     "name": "POST /api/v2/write",
@@ -106,10 +106,10 @@
     "headers": [],
     "x": 1040,
     "y": 120,
-    "wires": [["debug-response"]]
+    "wires": [["debug-response-energy"]]
   },
   {
-    "id": "debug-response",
+    "id": "debug-response-energy",
     "type": "debug",
     "z": "sparki-tab-main",
     "name": "Influx response",
@@ -123,6 +123,154 @@
     "statusType": "auto",
     "x": 1280,
     "y": 120,
+    "wires": []
+  },
+
+  {
+    "id": "sparki-tab-prices",
+    "type": "tab",
+    "label": "ENTSO-E Prices (BE)",
+    "disabled": false,
+    "info": "## ENTSO-E Day-Ahead Prices\n\nFetches day-ahead prices from the ENTSO-E Transparency Platform every hour.\n\n### Auto-fallback to mock\n\nIf the `ENTSOE_API_TOKEN` env var is empty or missing, a mock-price generator runs instead — keeps the dashboard usable while waiting for token approval (1-3 working days from ENTSO-E).\n\n### Configuration (env vars)\n\n- `ENTSOE_API_TOKEN` — security token from transparency.entsoe.eu\n- `ENTSOE_BIDDING_ZONE` — default `10YBE----------2` (Belgium)\n\n### API reference\n\n- Endpoint: `GET https://web-api.tp.entsoe.eu/api`\n- Document type `A44` = Day-ahead Prices\n- Returns XML with TimeSeries → Period → Point[]\n- Time resolution: PT60M (1-hour intervals)\n\n### Live vs mock\n\nLive path writes `source=entsoe` tag.\nMock path writes `source=mock` tag.\nWebapp can filter by source if needed."
+  },
+  {
+    "id": "trigger-prices-hourly",
+    "type": "inject",
+    "z": "sparki-tab-prices",
+    "name": "Hourly trigger",
+    "props": [{ "p": "payload" }],
+    "repeat": "3600",
+    "crontab": "",
+    "once": true,
+    "onceDelay": "10",
+    "topic": "",
+    "payload": "",
+    "payloadType": "date",
+    "x": 130,
+    "y": 120,
+    "wires": [["fn-prices-router"]]
+  },
+  {
+    "id": "fn-prices-router",
+    "type": "function",
+    "z": "sparki-tab-prices",
+    "name": "Token set? → route",
+    "func": "// Router: if a token is configured, take the LIVE path.\n// Otherwise fall back to MOCK. Same downstream — only the source\n// tag in InfluxDB differs.\n\nconst token = env.get('ENTSOE_API_TOKEN');\nconst zone = env.get('ENTSOE_BIDDING_ZONE') || '10YBE----------2';\n\n// Treat 'changeme-entsoe-token', empty, or anything obviously\n// placeholder-y as 'no token'.\nconst hasRealToken = token && token.length > 10 && !token.startsWith('changeme');\n\nmsg.zone = zone;\nmsg.token = token;\n\nif (hasRealToken) {\n    node.status({ fill: 'green', shape: 'dot', text: 'live (entsoe)' });\n    return [msg, null];     // -> LIVE\n}\nnode.status({ fill: 'yellow', shape: 'ring', text: 'mock (no token)' });\nreturn [null, msg];         // -> MOCK\n",
+    "outputs": 2,
+    "noerr": 0,
+    "x": 340,
+    "y": 120,
+    "wires": [
+      ["fn-build-entsoe-url"],
+      ["fn-generate-mock-prices"]
+    ]
+  },
+
+  {
+    "id": "fn-build-entsoe-url",
+    "type": "function",
+    "z": "sparki-tab-prices",
+    "name": "Build ENTSO-E URL",
+    "func": "// Build query for the next 24h day-ahead prices.\n//\n// ENTSO-E expects period bounds in YYYYMMDDhhmm UTC.\n// Day-ahead prices: documentType=A44, in_Domain=out_Domain=<zone>\n//\n// Doc: https://documenter.getpostman.com/view/7009892/2s93JtP3F6\n\nfunction fmt(d) {\n    const pad = n => String(n).padStart(2, '0');\n    return d.getUTCFullYear()\n        + pad(d.getUTCMonth() + 1)\n        + pad(d.getUTCDate())\n        + pad(d.getUTCHours())\n        + pad(d.getUTCMinutes());\n}\n\n// Fetch a 36h window: 12h backwards + 24h ahead. Gives us prices\n// for the current hour and the next ones, with a small overlap.\nconst now = new Date();\nconst periodStart = new Date(now.getTime() - 12 * 3600 * 1000);\nconst periodEnd   = new Date(now.getTime() + 24 * 3600 * 1000);\n\nconst params = new URLSearchParams({\n    documentType: 'A44',\n    in_Domain: msg.zone,\n    out_Domain: msg.zone,\n    periodStart: fmt(periodStart),\n    periodEnd: fmt(periodEnd),\n    securityToken: msg.token,\n});\n\nmsg.url = 'https://web-api.tp.entsoe.eu/api?' + params.toString();\nmsg.method = 'GET';\nmsg.headers = { 'Accept': 'application/xml' };\nmsg.zone_label = msg.zone.startsWith('10YBE') ? 'BE'\n               : msg.zone.startsWith('10YNL') ? 'NL'\n               : msg.zone.startsWith('10Y1001A1001A82H') ? 'DE-LU'\n               : msg.zone.substring(0, 6);\nnode.status({ fill: 'blue', shape: 'dot', text: `→ ENTSO-E ${msg.zone_label}` });\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 580,
+    "y": 80,
+    "wires": [["http-fetch-entsoe"]]
+  },
+  {
+    "id": "http-fetch-entsoe",
+    "type": "http request",
+    "z": "sparki-tab-prices",
+    "name": "GET ENTSO-E",
+    "method": "use",
+    "ret": "txt",
+    "paytoqs": "ignore",
+    "url": "",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "",
+    "senderr": false,
+    "headers": [],
+    "x": 800,
+    "y": 80,
+    "wires": [["fn-parse-entsoe"]]
+  },
+  {
+    "id": "fn-parse-entsoe",
+    "type": "function",
+    "z": "sparki-tab-prices",
+    "name": "Parse XML → points",
+    "func": "// Minimal XML parser tailored to ENTSO-E's Publication_MarketDocument\n// response. We don't pull in a full XML library — extracting <Point>\n// elements with regex is robust enough for this fixed schema.\n//\n// Response shape (abridged):\n//   <Publication_MarketDocument>\n//     <TimeSeries>\n//       <Period>\n//         <timeInterval>\n//           <start>2026-05-26T22:00Z</start>\n//           <end>2026-05-27T22:00Z</end>\n//         </timeInterval>\n//         <resolution>PT60M</resolution>\n//         <Point>\n//           <position>1</position>\n//           <price.amount>45.67</price.amount>\n//         </Point>\n//         ... 23 more points ...\n//       </Period>\n//     </TimeSeries>\n//   </Publication_MarketDocument>\n//\n// Each Period yields up to 24 hourly points starting at `start`.\n\nif (msg.statusCode && msg.statusCode !== 200) {\n    node.status({ fill: 'red', shape: 'dot', text: `HTTP ${msg.statusCode}` });\n    node.warn(`ENTSO-E request failed: ${msg.statusCode} — ${(msg.payload || '').substring(0, 200)}`);\n    return null;\n}\n\nconst xml = msg.payload || '';\n\n// Acknowledgement_MarketDocument means \"no data\" — fairly common\n// e.g. when no day-ahead has been published yet.\nif (xml.includes('Acknowledgement_MarketDocument')) {\n    const reason = xml.match(/<text>([^<]*)<\\/text>/);\n    node.status({ fill: 'yellow', shape: 'ring', text: 'no data' });\n    node.warn(`ENTSO-E: no data — ${reason ? reason[1] : 'unknown reason'}`);\n    return null;\n}\n\nconst points = [];\nconst periodRegex = /<Period>([\\s\\S]*?)<\\/Period>/g;\nlet periodMatch;\nwhile ((periodMatch = periodRegex.exec(xml)) !== null) {\n    const period = periodMatch[1];\n    const startMatch = period.match(/<start>([^<]+)<\\/start>/);\n    if (!startMatch) continue;\n    const periodStart = new Date(startMatch[1]);\n\n    // Resolution: PT60M (1h), PT30M, PT15M. We only handle PT60M\n    // because day-ahead is always hourly in EU markets.\n    const resMatch = period.match(/<resolution>(PT\\d+M)<\\/resolution>/);\n    const stepMin = resMatch ? parseInt(resMatch[1].match(/\\d+/)[0], 10) : 60;\n\n    const pointRegex = /<Point>\\s*<position>(\\d+)<\\/position>\\s*<price\\.amount>([\\d.\\-]+)<\\/price\\.amount>\\s*<\\/Point>/g;\n    let pointMatch;\n    while ((pointMatch = pointRegex.exec(period)) !== null) {\n        const position = parseInt(pointMatch[1], 10);\n        const price = parseFloat(pointMatch[2]);\n        const ts = new Date(periodStart.getTime() + (position - 1) * stepMin * 60 * 1000);\n        points.push({\n            measurement: 'price',\n            tags: { zone: msg.zone_label, source: 'entsoe' },\n            fields: { eur_per_mwh: price },\n            timestamp_ms: ts.getTime(),\n        });\n    }\n}\n\nif (points.length === 0) {\n    node.status({ fill: 'yellow', shape: 'ring', text: 'no points parsed' });\n    node.warn('ENTSO-E XML parsed but yielded no Points');\n    return null;\n}\n\nnode.status({ fill: 'green', shape: 'dot', text: `${points.length} prices` });\nmsg.payload = points;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 1010,
+    "y": 80,
+    "wires": [["fn-prices-line-protocol"]]
+  },
+
+  {
+    "id": "fn-generate-mock-prices",
+    "type": "function",
+    "z": "sparki-tab-prices",
+    "name": "Generate mock prices",
+    "func": "// Realistic BE day-ahead price pattern, 24 hourly points covering\n// the next 24h. Used as a fallback when ENTSO-E token is missing.\n//\n// Pattern (rough 2025/2026 BE shape):\n//   Night (00-06): 30-50 EUR/MWh — baseload\n//   Morning peak (07-09): 80-120 EUR/MWh\n//   Midday solar dip (10-15): -10 to 40 EUR/MWh, occasionally negative\n//   Evening peak (17-21): 100-180 EUR/MWh\n//   Late evening (22-00): 50-80 EUR/MWh\n\nfunction priceForHour(h) {\n    let base;\n    if (h < 6) base = 35 + Math.random() * 15;\n    else if (h < 10) base = 80 + Math.random() * 40;\n    else if (h < 16) {\n        // Solar dip. ~15% chance of negative price in spring/summer.\n        base = Math.random() < 0.15 ? -5 + Math.random() * -10 : 20 + Math.random() * 30;\n    }\n    else if (h < 17) base = 50 + Math.random() * 30;\n    else if (h < 22) base = 100 + Math.random() * 80;\n    else base = 50 + Math.random() * 30;\n    return +base.toFixed(2);\n}\n\nconst now = new Date();\n// Align to the next whole hour\nconst startHour = new Date(now);\nstartHour.setMinutes(0, 0, 0);\n\nconst points = [];\nfor (let i = 0; i < 24; i++) {\n    const ts = new Date(startHour.getTime() + i * 3600 * 1000);\n    points.push({\n        measurement: 'price',\n        tags: { zone: 'BE', source: 'mock' },\n        fields: { eur_per_mwh: priceForHour(ts.getHours()) },\n        timestamp_ms: ts.getTime(),\n    });\n}\n\nnode.status({ fill: 'green', shape: 'dot', text: `24h mock @ ${now.toLocaleTimeString()}` });\nmsg.payload = points;\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 600,
+    "y": 180,
+    "wires": [["fn-prices-line-protocol"]]
+  },
+
+  {
+    "id": "fn-prices-line-protocol",
+    "type": "function",
+    "z": "sparki-tab-prices",
+    "name": "Format Line Protocol",
+    "func": "// Same format as the energy flow, except each point can carry its\n// own timestamp_ms (because we're writing future prices, not now-data).\n\nconst points = msg.payload || [];\nif (points.length === 0) {\n    node.status({ fill: 'yellow', shape: 'ring', text: 'no points' });\n    return null;\n}\n\nfunction escapeTag(value) {\n    return String(value).replace(/([,= ])/g, '\\\\$1');\n}\n\nconst lines = points.map(p => {\n    const tags = Object.entries(p.tags).map(([k, v]) => `${escapeTag(k)}=${escapeTag(v)}`).join(',');\n    const fields = Object.entries(p.fields).map(([k, v]) => `${k}=${v}`).join(',');\n    const ts = p.timestamp_ms || Date.now();\n    return `${p.measurement},${tags} ${fields} ${ts}`;\n});\n\nmsg.payload = lines.join('\\n');\nmsg.headers = { 'Content-Type': 'text/plain; charset=utf-8' };\nmsg.method = 'POST';\nnode.status({ fill: 'green', shape: 'dot', text: `${points.length} lines built` });\nreturn msg;",
+    "outputs": 1,
+    "noerr": 0,
+    "x": 850,
+    "y": 180,
+    "wires": [["http-write-influx-prices"]]
+  },
+  {
+    "id": "http-write-influx-prices",
+    "type": "http request",
+    "z": "sparki-tab-prices",
+    "name": "POST /api/v2/write",
+    "method": "POST",
+    "ret": "txt",
+    "paytoqs": "ignore",
+    "url": "http://influxdb:8086/api/v2/write?org=sparki&bucket=energy&precision=ms",
+    "tls": "",
+    "persist": false,
+    "proxy": "",
+    "insecureHTTPParser": false,
+    "authType": "bearer",
+    "senderr": false,
+    "headers": [],
+    "x": 1100,
+    "y": 180,
+    "wires": [["debug-response-prices"]]
+  },
+  {
+    "id": "debug-response-prices",
+    "type": "debug",
+    "z": "sparki-tab-prices",
+    "name": "Influx response",
+    "active": true,
+    "tosidebar": true,
+    "console": false,
+    "tostatus": true,
+    "complete": "statusCode",
+    "targetType": "msg",
+    "statusVal": "statusCode",
+    "statusType": "auto",
+    "x": 1340,
+    "y": 180,
     "wires": []
   }
 ]

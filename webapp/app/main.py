@@ -29,6 +29,7 @@ from app.config import settings
 from app.core.healthz import collect_health
 from app.database import dispose_engine
 from app.influx import close_influx_client, get_influx_client
+from app.prices.routes import router as prices_router
 
 # Importing app.models registers ALL SQLAlchemy models on Base.metadata.
 # Required for Alembic autogenerate and any future model introspection.
@@ -138,3 +139,4 @@ async def root() -> dict[str, str]:
 # ─── Router registration ─────────────────────────────────────────────
 app.include_router(auth_router)
 app.include_router(buildings_router)
+app.include_router(prices_router)
