@@ -1,18 +1,10 @@
 """
 Integration tests for the building detail page + chart data routes (3.4).
 
-Run inside the webapp container against the live stack — no mocks.
+UPDATED in Step 3.6: building-ID discovery uses /buildings (the card grid)
+instead of "/" — "/" is now the per-site Portfolio summary.
 
-Covered:
-  - Detail page renders for a visible building (200, has chart canvases)
-  - Detail page 403 for a building outside the user's visibility
-  - Detail page 401 when anonymous
-  - Full-tile fragment renders (200, partial HTML)
-  - history.json returns Chart.js-shaped data for a visible building
-  - history.json 403 for a forbidden building
-  - prices.json returns a price series (200)
-  - prices.json 400 for an unknown zone
-  - data routes 401 when anonymous
+Run inside the webapp container against the live stack — no mocks.
 """
 
 from __future__ import annotations
@@ -43,8 +35,8 @@ def _building_ids(html: str) -> list[str]:
 
 
 async def _first_visible_id(client: httpx.AsyncClient) -> str:
-    portfolio = await client.get("/")
-    ids = _building_ids(portfolio.text)
+    grid = await client.get("/buildings")          # card grid, not "/"
+    ids = _building_ids(grid.text)
     assert ids, "no visible buildings for this user"
     return ids[0]
 
@@ -57,13 +49,10 @@ async def test_detail_page_renders_for_visible_building() -> None:
         r = await c.get(f"/buildings/{bid}")
         assert r.status_code == 200
         body = r.text
-        # Full page (extends base) with both chart canvases present
         assert "<html" in body.lower()
         assert 'id="energyChart"' in body
         assert 'id="socChart"' in body
-        # Live section lazy-loads the full tile
         assert "/tile/full" in body
-        # Back link to portfolio
         assert "Terug naar portfolio" in body
     finally:
         await c.aclose()
@@ -73,8 +62,8 @@ async def test_detail_page_403_for_forbidden_building() -> None:
     staff = await _session_client("staff")
     tenant = await _session_client("tenant")
     try:
-        all_ids = set(_building_ids((await staff.get("/")).text))
-        tenant_ids = set(_building_ids((await tenant.get("/")).text))
+        all_ids = set(_building_ids((await staff.get("/buildings")).text))
+        tenant_ids = set(_building_ids((await tenant.get("/buildings")).text))
         forbidden = (all_ids - tenant_ids).pop()
         r = await tenant.get(f"/buildings/{forbidden}")
         assert r.status_code == 403
@@ -97,9 +86,7 @@ async def test_full_tile_renders() -> None:
         bid = await _first_visible_id(c)
         r = await c.get(f"/buildings/{bid}/tile/full")
         assert r.status_code == 200
-        # Fragment, not a full page
         assert "<html" not in r.text.lower()
-        # Either the metric sections or the no-data note
         assert ("Productie" in r.text) or ("Geen recente data" in r.text)
     finally:
         await c.aclose()
@@ -129,8 +116,8 @@ async def test_history_json_403_for_forbidden_building() -> None:
     staff = await _session_client("staff")
     tenant = await _session_client("tenant")
     try:
-        all_ids = set(_building_ids((await staff.get("/")).text))
-        tenant_ids = set(_building_ids((await tenant.get("/")).text))
+        all_ids = set(_building_ids((await staff.get("/buildings")).text))
+        tenant_ids = set(_building_ids((await tenant.get("/buildings")).text))
         forbidden = (all_ids - tenant_ids).pop()
         r = await tenant.get(f"/buildings/{forbidden}/history.json")
         assert r.status_code == 403
@@ -148,7 +135,7 @@ async def test_history_json_requires_session() -> None:
 
 # ─── prices.json ─────────────────────────────────────────────────────
 async def test_prices_json_returns_series() -> None:
-    c = await _session_client("tenant")          # prices are market-wide
+    c = await _session_client("tenant")
     try:
         r = await c.get("/prices/BE.json")
         assert r.status_code == 200

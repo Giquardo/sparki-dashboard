@@ -3,71 +3,93 @@
 {% block title %}Portfolio — Sparki Dashboarding{% endblock %}
 
 {% block content %}
-{% if buildings %}
+<div class="max-w-6xl mx-auto">
+
+{% if summaries %}
 <p class="text-sparki-gray-200 mb-6">
-    {{ buildings|length }}
-    {% if buildings|length == 1 %}gebouw{% else %}gebouwen{% endif %}
-    zichtbaar voor jou.
+    {{ total_buildings }}
+    {% if total_buildings == 1 %}gebouw{% else %}gebouwen{% endif %}
+    verdeeld over {{ summaries|length }}
+    {% if summaries|length == 1 %}site{% else %}sites{% endif %}.
 </p>
 
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-    {% for b in buildings %}
-    {# Whole card is a link to the (future) detail page. Step 3.4 builds
-       /buildings/{id}; for now it's a valid route target that will 404
-       gracefully until then, so we point it at a stub anchor. #}
-    <a href="/buildings/{{ b.id }}"
-       class="group block p-5 rounded-xl bg-sparki-navy-light
-              border border-sparki-navy-soft
-              hover:border-sparki-red/50 hover:shadow-sparki
-              transition-all">
+<div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    {% for s in summaries %}
+    <div class="rounded-xl bg-sparki-navy-light border border-sparki-navy-soft p-5">
 
-        {# ─── Card header: name + specs ─────────────────────────── #}
+        {# ─── Site header ────────────────────────────────────────── #}
         <div class="flex items-start justify-between mb-4">
             <div>
-                <h3 class="text-lg font-bold group-hover:text-sparki-red
-                           transition-colors">
-                    {{ b.name }}
-                </h3>
+                <h3 class="text-lg font-bold">{{ s.site_name }}</h3>
                 <p class="text-xs text-sparki-gray-500 mt-0.5">
-                    {% if b.installed_kwp %}{{ b.installed_kwp|nl_number(1) }} kWp PV{% endif %}
-                    {% if b.installed_kwp and b.battery_kwh %} · {% endif %}
-                    {% if b.battery_kwh %}{{ b.battery_kwh|nl_number(1) }} kWh batterij{% endif %}
-                    {% if not b.installed_kwp and not b.battery_kwh %}Geen specs bekend{% endif %}
+                    {{ s.count }}
+                    {% if s.count == 1 %}gebouw{% else %}gebouwen{% endif %}
                 </p>
             </div>
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                 stroke-width="2" stroke="currentColor"
-                 class="w-5 h-5 text-sparki-gray-500
-                        group-hover:text-sparki-red transition-colors">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                      d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
-            </svg>
+            <a href="/buildings"
+               class="text-xs font-semibold text-sparki-gray-500
+                      hover:text-sparki-red transition-colors
+                      inline-flex items-center gap-1">
+                Bekijk gebouwen
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                     viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"
+                     class="w-3.5 h-3.5">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
+                </svg>
+            </a>
         </div>
 
-        {# ─── Live-data tile: lazy-loaded + 30s self-refresh ────── #}
-        {# hx-trigger "load" fires once on render, then "every 30s".
-           hx-get hits the tile route; the returned fragment replaces
-           this div's contents (hx-swap innerHTML, the default).
-           hx-disabled-elt keeps the click-through link working. #}
-        <div hx-get="/buildings/{{ b.id }}/tile"
-             hx-trigger="load, every 30s"
-             hx-swap="innerHTML"
-             class="min-h-[88px]">
-            {# Skeleton shown until the first HTMX load completes #}
-            {% include "partials/building_tile_skeleton.html" %}
+        {# ─── Stats row ──────────────────────────────────────────── #}
+        <div class="grid grid-cols-3 gap-2">
+            <div class="rounded-lg bg-sparki-navy border border-sparki-navy-soft px-3 py-3">
+                <p class="text-[10px] uppercase tracking-wider text-sparki-gray-500
+                          font-semibold mb-1.5">PV nu</p>
+                {# Live PV aggregate — lazy-loaded + refreshed by HTMX #}
+                <p class="text-xl font-bold leading-none text-sparki-warning"
+                   hx-get="/sites/{{ s.site_id }}/live.json"
+                   hx-trigger="load, every 30s"
+                   hx-swap="none"
+                   hx-on::after-request="
+                     try {
+                       const d = JSON.parse(event.detail.xhr.responseText);
+                       this.textContent = d.has_data
+                         ? d.total_pv_kw.toLocaleString('nl-BE',{minimumFractionDigits:1,maximumFractionDigits:1})
+                         : '–';
+                     } catch (e) { this.textContent = '–'; }
+                   ">–</p>
+                <p class="text-[10px] text-sparki-gray-500 mt-1">kW</p>
+            </div>
+            <div class="rounded-lg bg-sparki-navy border border-sparki-navy-soft px-3 py-3">
+                <p class="text-[10px] uppercase tracking-wider text-sparki-gray-500
+                          font-semibold mb-1.5">PV capaciteit</p>
+                <p class="text-xl font-bold leading-none">
+                    {{ s.total_kwp|nl_number(1) }}
+                </p>
+                <p class="text-[10px] text-sparki-gray-500 mt-1">kWp</p>
+            </div>
+            <div class="rounded-lg bg-sparki-navy border border-sparki-navy-soft px-3 py-3">
+                <p class="text-[10px] uppercase tracking-wider text-sparki-gray-500
+                          font-semibold mb-1.5">Batterij</p>
+                <p class="text-xl font-bold leading-none">
+                    {{ s.total_kwh|nl_number(1) }}
+                </p>
+                <p class="text-[10px] text-sparki-gray-500 mt-1">kWh</p>
+            </div>
         </div>
-    </a>
+    </div>
     {% endfor %}
 </div>
 {% else %}
-{# ─── Empty state ───────────────────────────────────────────────── #}
 <div class="max-w-md p-6 rounded-xl bg-sparki-navy-light
             border border-sparki-navy-soft">
-    <h3 class="text-lg font-bold mb-2">Geen gebouwen zichtbaar</h3>
+    <h3 class="text-lg font-bold mb-2">Geen sites zichtbaar</h3>
     <p class="text-sm text-sparki-gray-200">
         Er zijn momenteel geen gebouwen aan jouw account gekoppeld.
         Neem contact op met je beheerder als je denkt dat dit niet klopt.
     </p>
 </div>
 {% endif %}
+
+</div>
 {% endblock %}

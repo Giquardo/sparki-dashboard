@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block title %}Gebouwen — Sparki Dashboarding{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+{% if buildings %}
+<p class="text-sparki-gray-200 mb-6">
+    {{ buildings|length }}
+    {% if buildings|length == 1 %}gebouw{% else %}gebouwen{% endif %}
+    zichtbaar voor jou.
+</p>
+
+<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+    {% for b in buildings %}
+    <a href="/buildings/{{ b.id }}"
+       class="group block p-5 rounded-xl bg-sparki-navy-light
+              border border-sparki-navy-soft
+              hover:border-sparki-red/50 hover:shadow-sparki
+              transition-all">
+
+        <div class="flex items-start justify-between mb-4">
+            <div>
+                <h3 class="text-lg font-bold group-hover:text-sparki-red
+                           transition-colors">
+                    {{ b.name }}
+                </h3>
+                <p class="text-xs text-sparki-gray-500 mt-0.5">
+                    {% if b.installed_kwp %}{{ b.installed_kwp|nl_number(1) }} kWp PV{% endif %}
+                    {% if b.installed_kwp and b.battery_kwh %} · {% endif %}
+                    {% if b.battery_kwh %}{{ b.battery_kwh|nl_number(1) }} kWh batterij{% endif %}
+                    {% if not b.installed_kwp and not b.battery_kwh %}Geen specs bekend{% endif %}
+                </p>
+            </div>
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+                 stroke-width="2" stroke="currentColor"
+                 class="w-5 h-5 text-sparki-gray-500
+                        group-hover:text-sparki-red transition-colors">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
+            </svg>
+        </div>
+
+        <div hx-get="/buildings/{{ b.id }}/tile"
+             hx-trigger="load, every 30s"
+             hx-swap="innerHTML"
+             class="min-h-[88px]">
+            {% include "partials/building_tile_skeleton.html" %}
+        </div>
+    </a>
+    {% endfor %}
+</div>
+{% else %}
+<div class="max-w-md p-6 rounded-xl bg-sparki-navy-light
+            border border-sparki-navy-soft">
+    <h3 class="text-lg font-bold mb-2">Geen gebouwen zichtbaar</h3>
+    <p class="text-sm text-sparki-gray-200">
+        Er zijn momenteel geen gebouwen aan jouw account gekoppeld.
+        Neem contact op met je beheerder als je denkt dat dit niet klopt.
+    </p>
+</div>
+{% endif %}
+
+</div>
+{% endblock %}
