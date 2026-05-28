@@ -1,0 +1,97 @@
+{#
+  Full live-metric fragment for the building detail page.
+
+  Layout: four section cards (Productie / Verbruik / Batterij / Net) in a
+  2-column grid, each with bordered metric tiles. SOLID backgrounds only
+  (bg-sparki-navy) — opacity modifiers like bg-sparki-navy/40 do NOT
+  compile under the Tailwind CDN with custom colors.
+
+  Sign conventions (CONTEXT §7):
+    grid_kw    > 0 = exporting (green), < 0 = importing (orange)
+    battery_kw > 0 = charging  (green), < 0 = discharging (orange)
+#}
+{% macro metric(label, value, unit, color_class="text-sparki-white") %}
+<div class="rounded-lg bg-sparki-navy border border-sparki-navy-soft px-3 py-3">
+    <p class="text-[10px] uppercase tracking-wider text-sparki-gray-500
+              font-semibold mb-1.5">{{ label }}</p>
+    <p class="text-xl font-bold leading-none {{ color_class }}">
+        {{ value }}
+    </p>
+    <p class="text-[10px] text-sparki-gray-500 mt-1">{{ unit }}</p>
+</div>
+{% endmacro %}
+
+{% if current.timestamp %}
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+
+    {# Productie #}
+    <div class="rounded-xl bg-sparki-navy-light border border-sparki-navy-soft p-4">
+        <p class="text-[11px] uppercase tracking-wider font-bold
+                  text-sparki-red mb-3">Productie</p>
+        <div class="grid grid-cols-2 gap-2">
+            {{ metric("PV", current.pv_kw|nl_number(2), "kW", "text-sparki-warning") }}
+            {{ metric("Zelfverbruik", current.self_consumption_kw|nl_number(2), "kW") }}
+        </div>
+    </div>
+
+    {# Batterij #}
+    <div class="rounded-xl bg-sparki-navy-light border border-sparki-navy-soft p-4">
+        <p class="text-[11px] uppercase tracking-wider font-bold
+                  text-sparki-red mb-3">Batterij</p>
+        <div class="grid grid-cols-2 gap-2">
+            {{ metric(
+                "Vermogen",
+                current.battery_kw|nl_number(2),
+                ("laden (kW)" if (current.battery_kw is not none and current.battery_kw >= 0) else "ontladen (kW)"),
+                "text-sparki-success" if (current.battery_kw is not none and current.battery_kw >= 0) else "text-sparki-warning"
+            ) }}
+            {{ metric(
+                "Lading",
+                current.battery_soc|nl_number(0),
+                "%",
+                "text-sparki-warning" if (current.battery_soc is not none and current.battery_soc < 20) else "text-sparki-success"
+            ) }}
+        </div>
+    </div>
+
+    {# Verbruik #}
+    <div class="rounded-xl bg-sparki-navy-light border border-sparki-navy-soft p-4">
+        <p class="text-[11px] uppercase tracking-wider font-bold
+                  text-sparki-red mb-3">Verbruik</p>
+        <div class="grid grid-cols-3 gap-2">
+            {{ metric("Totaal", current.load_kw|nl_number(2), "kW") }}
+            {{ metric("EV-lader", current.ev_charger_kw|nl_number(2), "kW") }}
+            {{ metric("Warmtepomp", current.heatpump_kw|nl_number(2), "kW") }}
+        </div>
+    </div>
+
+    {# Net #}
+    <div class="rounded-xl bg-sparki-navy-light border border-sparki-navy-soft p-4">
+        <p class="text-[11px] uppercase tracking-wider font-bold
+                  text-sparki-red mb-3">Net</p>
+        <div class="grid grid-cols-3 gap-2">
+            {{ metric(
+                "Saldo",
+                current.grid_kw|nl_number(2),
+                ("terug (kW)" if (current.grid_kw is not none and current.grid_kw >= 0) else "afname (kW)"),
+                "text-sparki-success" if (current.grid_kw is not none and current.grid_kw >= 0) else "text-sparki-warning"
+            ) }}
+            {{ metric("Afname", current.import_kw|nl_number(2), "kW") }}
+            {{ metric("Injectie", current.export_kw|nl_number(2), "kW") }}
+        </div>
+    </div>
+</div>
+
+<p class="text-[11px] text-sparki-gray-500 mt-3">
+    Laatste meting: {{ current.timestamp|nl_time }}
+</p>
+{% else %}
+<div class="flex items-center justify-center py-12 rounded-xl
+            bg-sparki-navy-light border border-sparki-navy-soft
+            text-sm text-sparki-gray-500">
+    <span class="inline-flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-sparki-gray-500"></span>
+        Geen recente data voor dit gebouw
+    </span>
+</div>
+{% endif %}

@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+
+{% block title %}{{ building.name }} — Sparki Dashboarding{% endblock %}
+
+{% block content %}
+<div class="max-w-6xl mx-auto">
+
+{# ─── Breadcrumb + header ──────────────────────────────────────────── #}
+<div class="mb-8">
+    <a href="/" class="inline-flex items-center gap-1.5 text-sm
+              text-sparki-gray-500 hover:text-sparki-white transition-colors mb-3">
+        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+             stroke-width="2" stroke="currentColor" class="w-4 h-4">
+            <path stroke-linecap="round" stroke-linejoin="round"
+                  d="M10.5 19.5 3 12m0 0 7.5-7.5M3 12h18"/>
+        </svg>
+        Terug naar portfolio
+    </a>
+    <h1 class="text-3xl md:text-4xl font-extrabold tracking-tight">
+        {{ building.name }}<span class="text-sparki-red">.</span>
+    </h1>
+    <p class="text-sm text-sparki-gray-500 mt-1">
+        {% if site %}{{ site.name }} · {% endif %}
+        {% if building.installed_kwp %}{{ building.installed_kwp|nl_number(1) }} kWp PV{% endif %}
+        {% if building.installed_kwp and building.battery_kwh %} · {% endif %}
+        {% if building.battery_kwh %}{{ building.battery_kwh|nl_number(1) }} kWh batterij{% endif %}
+        {% if building.sigen_system_id %}
+            · <span class="font-mono">{{ building.sigen_system_id }}</span>
+        {% endif %}
+    </p>
+</div>
+
+{# ─── Live metrics (full set) — HTMX 30s refresh ───────────────────── #}
+<section class="mb-8">
+    <h2 class="text-sm uppercase tracking-wider font-bold
+               text-sparki-gray-500 mb-3">Live</h2>
+    <div hx-get="/buildings/{{ building.id }}/tile/full"
+         hx-trigger="load, every 30s"
+         hx-swap="innerHTML">
+        {% include "partials/building_tiles_full_skeleton.html" %}
+    </div>
+</section>
+
+{# ─── Chart 1: energy flow + price overlay ─────────────────────────── #}
+<section class="mb-6">
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm uppercase tracking-wider font-bold
+                   text-sparki-gray-500">Energiestroom &amp; prijs (24u)</h2>
+        <span class="text-xs text-sparki-gray-500" id="energy-chart-status">Laden…</span>
+    </div>
+    <div class="p-4 rounded-xl bg-sparki-navy-light border border-sparki-navy-soft">
+        <div class="relative h-80">
+            <canvas id="energyChart"></canvas>
+        </div>
+    </div>
+</section>
+
+{# ─── Chart 2: battery SoC ─────────────────────────────────────────── #}
+<section class="mb-8">
+    <div class="flex items-center justify-between mb-3">
+        <h2 class="text-sm uppercase tracking-wider font-bold
+                   text-sparki-gray-500">Batterijlading (24u)</h2>
+        <span class="text-xs text-sparki-gray-500" id="soc-chart-status">Laden…</span>
+    </div>
+    <div class="p-4 rounded-xl bg-sparki-navy-light border border-sparki-navy-soft">
+        <div class="relative h-56">
+            <canvas id="socChart"></canvas>
+        </div>
+    </div>
+</section>
+
+</div>
+{% endblock %}
+
+{% block extra_scripts %}
+<script>
+(function () {
+    const BUILDING_ID = "{{ building.id }}";
+    const PRICE_ZONE  = "BE";
+    const REFRESH_MS  = 30000;
+
+    const C = {
+        pv:      "#FBBF24", load: "#E5E7EB", grid: "#34D399",
+        battery: "#0EA5E9", price: "#E63946",
+        grid_line: "rgba(255,255,255,0.06)", text: "#9CA3AF",
+    };
+
+    let energyChart = null, socChart = null;
+
+    async function fetchJSON(url) {
+        const r = await fetch(url, { credentials: "same-origin" });
+        if (!r.ok) throw new Error(url + " → " + r.status);
+        return r.json();
+    }
+
+    // Show date + time so a 24h window that crosses midnight reads correctly.
+    function fmtLabel(iso) {
+        const d = new Date(iso);
+        return d.toLocaleString("nl-BE",
+            { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
+            .replace(",", "");
+    }
+
+    const baseX = {
+        ticks: { color: C.text, maxTicksLimit: 7, font: { size: 10 },
+                 maxRotation: 0, autoSkip: true },
+        grid:  { color: C.grid_line },
+    };
+
+    function refreshAll() {
+        // Fetch history once, share it between both charts.
+        Promise.all([
+            fetchJSON(`/buildings/${BUILDING_ID}/history.json`),
+            fetchJSON(`/prices/${PRICE_ZONE}.json`).catch(() => null),
+        ]).then(([hist, prices]) => {
+            drawEnergy(hist, prices);
+            drawSoc(hist);
+        }).catch(e => {
+            console.error("chart refresh:", e);
+            document.getElementById("energy-chart-status").textContent =
+                "Kon grafiek niet laden";
+        });
+    }
+
+    function drawEnergy(hist, prices) {
+        const status = document.getElementById("energy-chart-status");
+        const labels = hist.points.map(p => fmtLabel(p.timestamp));
+        const ds = [
+            { label: "PV (kW)", data: hist.points.map(p => p.pv_kw),
+              borderColor: C.pv, backgroundColor: C.pv, yAxisID: "y",
+              tension: 0.3, pointRadius: 0, borderWidth: 2 },
+            { label: "Verbruik (kW)", data: hist.points.map(p => p.load_kw),
+              borderColor: C.load, backgroundColor: C.load, yAxisID: "y",
+              tension: 0.3, pointRadius: 0, borderWidth: 2 },
+            { label: "Net (kW)", data: hist.points.map(p => p.grid_kw),
+              borderColor: C.grid, backgroundColor: C.grid, yAxisID: "y",
+              tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
+        ];
+        if (prices && prices.points && prices.points.length) {
+            const byHour = {};
+            prices.points.forEach(pp => {
+                const d = new Date(pp.timestamp);
+                byHour[d.getUTCFullYear()+"-"+d.getUTCMonth()+"-"+d.getUTCDate()+"-"+d.getUTCHours()]
+                    = pp.eur_per_mwh;
+            });
+            const priceData = hist.points.map(p => {
+                const d = new Date(p.timestamp);
+                const k = d.getUTCFullYear()+"-"+d.getUTCMonth()+"-"+d.getUTCDate()+"-"+d.getUTCHours();
+                return byHour[k] ?? null;
+            });
+            ds.push({ label: "Prijs (€/MWh)", data: priceData,
+                borderColor: C.price, backgroundColor: C.price, yAxisID: "y1",
+                tension: 0, pointRadius: 0, borderWidth: 1.5,
+                borderDash: [5, 4], spanGaps: true });
+        }
+        const cfg = {
+            type: "line", data: { labels, datasets: ds },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                interaction: { mode: "index", intersect: false },
+                plugins: { legend: { labels: { color: C.text, font: { size: 11 },
+                           usePointStyle: true, boxWidth: 8 } } },
+                scales: {
+                    x: baseX,
+                    y:  { position: "left", title: { display: true, text: "kW", color: C.text },
+                          ticks: { color: C.text }, grid: { color: C.grid_line } },
+                    y1: { position: "right", title: { display: true, text: "€/MWh", color: C.price },
+                          ticks: { color: C.price }, grid: { drawOnChartArea: false } },
+                },
+            },
+        };
+        if (energyChart) { energyChart.data = cfg.data; energyChart.update("none"); }
+        else { energyChart = new Chart(document.getElementById("energyChart"), cfg); }
+        status.textContent =
+            (prices && prices.source ? "Prijs: " + prices.source + " · " : "")
+            + hist.points.length + " punten";
+    }
+
+    function drawSoc(hist) {
+        const status = document.getElementById("soc-chart-status");
+        const labels = hist.points.map(p => fmtLabel(p.timestamp));
+        const cfg = {
+            type: "line",
+            data: { labels, datasets: [{
+                label: "Lading (%)", data: hist.points.map(p => p.battery_soc),
+                borderColor: C.battery, backgroundColor: "rgba(14,165,233,0.12)",
+                fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
+            options: {
+                responsive: true, maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: baseX,
+                    y: { min: 0, max: 100, title: { display: true, text: "%", color: C.text },
+                         ticks: { color: C.text, stepSize: 25 }, grid: { color: C.grid_line } },
+                },
+            },
+        };
+        if (socChart) { socChart.data = cfg.data; socChart.update("none"); }
+        else { socChart = new Chart(document.getElementById("socChart"), cfg); }
+        status.textContent = hist.points.length + " punten";
+    }
+
+    if (document.readyState === "complete") refreshAll();
+    else window.addEventListener("load", refreshAll);
+    setInterval(refreshAll, REFRESH_MS);
+})();
+</script>
+{% endblock %}

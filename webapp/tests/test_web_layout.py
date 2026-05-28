@@ -55,8 +55,12 @@ async def test_anonymous_root_serves_landing() -> None:
     assert r.status_code == 200
     assert r.headers["content-type"].startswith("text/html")
     body = r.text
-    # Brand identity present
-    assert "SPARKI" in body
+    # Brand identity present.
+    # NOTE: the sidebar logo is now an inline SVG (not the literal text
+    # "SPARKI"), so we assert on the page <title> and the landing copy
+    # instead — these are stable regardless of how the logo is rendered.
+    assert "Sparki Dashboarding" in body          # <title>
+    assert "Maar dan helder" in body              # landing tagline
     # Login CTA in NL
     assert "Inloggen" in body
 
@@ -79,7 +83,6 @@ async def test_anonymous_login_redirects_to_keycloak() -> None:
     )
     location = r.headers["location"]
     parsed = urlparse(location)
-    # Redirect target is Keycloak's authorization endpoint
     assert parsed.netloc == urlparse(KEYCLOAK_PUBLIC_URL).netloc
     assert "/protocol/openid-connect/auth" in parsed.path
 
