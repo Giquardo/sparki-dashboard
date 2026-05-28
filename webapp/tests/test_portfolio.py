@@ -1,9 +1,8 @@
 """
-Integration tests for the building card grid (originally Step 3.3).
+Integration tests for the building card grid.
 
-UPDATED in Step 3.6: the card grid moved from "/" to "/buildings".
-"/" is now the per-site Portfolio summary (see test_portfolio_restructure.py).
-These tests therefore target /buildings for the grid behavior.
+Step 3.3 origin, updated through Step 3.6 (moved from "/" to "/buildings")
+and Step 3.6+ (grid now grouped by site under collapsible <details>).
 
 Run inside the webapp container against the live stack — no mocks.
 """
@@ -44,7 +43,7 @@ async def test_anonymous_root_is_landing_not_grid() -> None:
     assert "/tile" not in r.text
 
 
-# ─── Card grid now lives at /buildings ───────────────────────────────
+# ─── Card grid at /buildings ─────────────────────────────────────────
 async def test_staff_grid_lists_all_ten() -> None:
     c = await _session_client("staff")
     try:
@@ -82,7 +81,40 @@ async def test_grid_cards_have_htmx_tile_triggers() -> None:
         await c.aclose()
 
 
-# ─── Tile fragment ───────────────────────────────────────────────────
+# ─── Site-grouped layout (Step 3.6+) ─────────────────────────────────
+async def test_grid_is_grouped_by_site() -> None:
+    """Cards must be wrapped in collapsible <details> sections, each
+    headed by the site name + a mini-summary (count + kWp + kWh)."""
+    c = await _session_client("staff")
+    try:
+        r = await c.get("/buildings")
+        body = r.text
+        # Native collapsible markup
+        assert "<details" in body
+        assert "<summary" in body
+        # Seed data: one site "Wijk Sint-Jan"
+        assert "Wijk Sint-Jan" in body
+        # Per-site summary uses kWp PV and kWh batterij text
+        assert "kWp PV" in body
+        assert "kWh batterij" in body
+    finally:
+        await c.aclose()
+
+
+async def test_grouped_section_count_matches_visible_sites() -> None:
+    """Each visible site should produce exactly one <summary>."""
+    c = await _session_client("staff")
+    try:
+        r = await c.get("/buildings")
+        body = r.text
+        # Staff sees 10 buildings in 1 site → 1 summary
+        summaries = re.findall(r"<summary[\s>]", body)
+        assert len(summaries) == 1
+    finally:
+        await c.aclose()
+
+
+# ─── Tile fragment (unchanged contract) ──────────────────────────────
 async def test_tile_renders_for_visible_building() -> None:
     c = await _session_client("staff")
     try:

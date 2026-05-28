@@ -5,50 +5,100 @@
 {% block content %}
 <div class="max-w-6xl mx-auto">
 
-{% if buildings %}
+{% if groups %}
 <p class="text-sparki-gray-200 mb-6">
-    {{ buildings|length }}
-    {% if buildings|length == 1 %}gebouw{% else %}gebouwen{% endif %}
-    zichtbaar voor jou.
+    {{ total_buildings }}
+    {% if total_buildings == 1 %}gebouw{% else %}gebouwen{% endif %}
+    in {{ groups|length }}
+    {% if groups|length == 1 %}site{% else %}sites{% endif %}.
 </p>
 
-<div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-    {% for b in buildings %}
-    <a href="/buildings/{{ b.id }}"
-       class="group block p-5 rounded-xl bg-sparki-navy-light
-              border border-sparki-navy-soft
-              hover:border-sparki-red/50 hover:shadow-sparki
-              transition-all">
+<div class="space-y-4">
+    {% for g in groups %}
+    {# Native <details>/<summary> — zero JS, keyboard + a11y for free.
+       Default open; the user can collapse a section per visit (state
+       isn't persisted across page loads, which is fine for our scale). #}
+    <details open
+             class="group rounded-xl bg-sparki-navy-light
+                    border border-sparki-navy-soft overflow-hidden">
 
-        <div class="flex items-start justify-between mb-4">
-            <div>
-                <h3 class="text-lg font-bold group-hover:text-sparki-red
-                           transition-colors">
-                    {{ b.name }}
-                </h3>
-                <p class="text-xs text-sparki-gray-500 mt-0.5">
-                    {% if b.installed_kwp %}{{ b.installed_kwp|nl_number(1) }} kWp PV{% endif %}
-                    {% if b.installed_kwp and b.battery_kwh %} · {% endif %}
-                    {% if b.battery_kwh %}{{ b.battery_kwh|nl_number(1) }} kWh batterij{% endif %}
-                    {% if not b.installed_kwp and not b.battery_kwh %}Geen specs bekend{% endif %}
-                </p>
+        {# ─── Section header (clickable, opens/closes) ───────────── #}
+        <summary class="flex items-center justify-between gap-4 p-5
+                        cursor-pointer select-none
+                        hover:bg-sparki-navy-soft/40 transition-colors
+                        list-none">
+            {# left: chevron + name + per-site mini-summary #}
+            <div class="flex items-center gap-3 min-w-0">
+                {# Chevron rotates when the section opens — pure CSS #}
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                     viewBox="0 0 24 24" stroke-width="2.5" stroke="currentColor"
+                     class="w-4 h-4 text-sparki-gray-500 flex-shrink-0
+                            transition-transform group-open:rotate-90">
+                    <path stroke-linecap="round" stroke-linejoin="round"
+                          d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
+                </svg>
+                <div class="min-w-0">
+                    <h3 class="text-lg font-bold truncate">{{ g.site_name }}</h3>
+                    <p class="text-xs text-sparki-gray-500 mt-0.5">
+                        {{ g.count }}
+                        {% if g.count == 1 %}gebouw{% else %}gebouwen{% endif %}
+                        · {{ g.total_kwp|nl_number(1) }} kWp PV
+                        · {{ g.total_kwh|nl_number(1) }} kWh batterij
+                    </p>
+                </div>
             </div>
-            <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-                 stroke-width="2" stroke="currentColor"
-                 class="w-5 h-5 text-sparki-gray-500
-                        group-hover:text-sparki-red transition-colors">
-                <path stroke-linecap="round" stroke-linejoin="round"
-                      d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
-            </svg>
-        </div>
+            {# right: a fold/unfold hint label that swaps with the state #}
+            <span class="text-[10px] uppercase tracking-wider font-bold
+                         text-sparki-gray-500 flex-shrink-0">
+                <span class="group-open:hidden">Toon</span>
+                <span class="hidden group-open:inline">Verberg</span>
+            </span>
+        </summary>
 
-        <div hx-get="/buildings/{{ b.id }}/tile"
-             hx-trigger="load, every 30s"
-             hx-swap="innerHTML"
-             class="min-h-[88px]">
-            {% include "partials/building_tile_skeleton.html" %}
+        {# ─── Building card grid for this site ───────────────────── #}
+        <div class="px-5 pb-5 pt-1">
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {% for b in g.buildings %}
+                <a href="/buildings/{{ b.id }}"
+                   class="group/card block p-4 rounded-lg bg-sparki-navy
+                          border border-sparki-navy-soft
+                          hover:border-sparki-red/50 hover:shadow-sparki
+                          transition-all">
+
+                    <div class="flex items-start justify-between mb-3">
+                        <div>
+                            <h4 class="text-base font-bold
+                                       group-hover/card:text-sparki-red
+                                       transition-colors">
+                                {{ b.name }}
+                            </h4>
+                            <p class="text-[11px] text-sparki-gray-500 mt-0.5">
+                                {% if b.installed_kwp %}{{ b.installed_kwp|nl_number(1) }} kWp{% endif %}
+                                {% if b.installed_kwp and b.battery_kwh %} · {% endif %}
+                                {% if b.battery_kwh %}{{ b.battery_kwh|nl_number(1) }} kWh{% endif %}
+                                {% if not b.installed_kwp and not b.battery_kwh %}Geen specs bekend{% endif %}
+                            </p>
+                        </div>
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                             viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"
+                             class="w-4 h-4 text-sparki-gray-500
+                                    group-hover/card:text-sparki-red transition-colors">
+                            <path stroke-linecap="round" stroke-linejoin="round"
+                                  d="m8.25 4.5 7.5 7.5-7.5 7.5"/>
+                        </svg>
+                    </div>
+
+                    <div hx-get="/buildings/{{ b.id }}/tile"
+                         hx-trigger="load, every 30s"
+                         hx-swap="innerHTML"
+                         class="min-h-[88px]">
+                        {% include "partials/building_tile_skeleton.html" %}
+                    </div>
+                </a>
+                {% endfor %}
+            </div>
         </div>
-    </a>
+    </details>
     {% endfor %}
 </div>
 {% else %}

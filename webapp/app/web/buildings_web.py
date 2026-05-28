@@ -1,26 +1,19 @@
 """
 HTML routes for the buildings / portfolio UI.
 
-Page structure (Step 3.6 restructure):
   GET /                       → Portfolio: per-site summary cards (overview)
-  GET /buildings              → Gebouwen: the building card grid (drill-down)
+  GET /buildings              → Gebouwen: card grid GROUPED BY SITE
   GET /buildings/{id}         → building detail page
   GET /buildings/{id}/tile         → compact 3-metric card tile (HTMX)
   GET /buildings/{id}/tile/full    → full live-metric set (HTMX)
   GET /buildings/{id}/history.json → time-series JSON for Chart.js
   GET /prices/{zone}.json          → day-ahead price series JSON for Chart.js
-  GET /sites/{id}/live.json        → aggregate live PV for a site (HTMX/JSON)
+  GET /sites/{id}/live.json        → aggregate live PV for a site
 
-Portfolio (/) is the executive overview: one card per site the user can
-see, with building count + total PV/battery capacity (from Postgres,
-instant) and an aggregate "live PV now" figure (lazy-loaded).
-
-Gebouwen (/buildings) is the operational view: the per-building card grid
-that used to live at "/".
-
-All building-scoped routes reuse `buildings_visible_to()` — the SAME
-visibility logic as the JSON API — and emit 403 + audit row for any
-building outside the user's set.
+Step 3.6+ change: /buildings now groups its cards by site, with a
+mini-summary per section (count, total kWp, total kWh). Powered by
+the same _grouped_by_site() helper Portfolio (/) uses, so both pages
+present the same hierarchy consistently.
 """
 
 from __future__ import annotations
@@ -33,7 +26,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import HTMLResponse, JSONResponse
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
 
 from app.auth.schemas import CurrentUser
 from app.buildings.models import Building
@@ -104,6 +96,51 @@ async def _visible_buildings(user: CurrentUser, db: AsyncSession) -> list[Buildi
     return list(result.scalars().all())
 
 
+async def _grouped_by_site(
+    user: CurrentUser, db: AsyncSession,
+) -> tuple[list[dict], int]:
+    """Group the user's visible buildings into site sections.
+
+    Returns (groups, total_buildings), where each group is:
+        {
+            "site_id":   UUID,
+            "site_name": str,
+            "count":     int,
+            "total_kwp": float,
+            "total_kwh": float,
+            "buildings": list[Building],
+        }
+    Groups are sorted by site name; buildings within each group by name
+    (the underlying _visible_buildings query already orders by name, so
+    insertion preserves it).
+    """
+    buildings = await _visible_buildings(user, db)
+    if not buildings:
+        return [], 0
+
+    site_ids = {b.site_id for b in buildings}
+    site_rows = await db.execute(select(Site).where(Site.id.in_(site_ids)))
+    sites_by_id = {s.id: s for s in site_rows.scalars().all()}
+
+    grouped: dict[uuid.UUID, list[Building]] = {}
+    for b in buildings:
+        grouped.setdefault(b.site_id, []).append(b)
+
+    groups = []
+    for sid, bldgs in grouped.items():
+        site = sites_by_id.get(sid)
+        groups.append({
+            "site_id":   sid,
+            "site_name": site.name if site else "Onbekende site",
+            "count":     len(bldgs),
+            "total_kwp": sum((b.installed_kwp or 0) for b in bldgs),
+            "total_kwh": sum((b.battery_kwh or 0) for b in bldgs),
+            "buildings": bldgs,
+        })
+    groups.sort(key=lambda g: g["site_name"])
+    return groups, len(buildings)
+
+
 # ─── Portfolio (/) — per-site summary ────────────────────────────────
 @router.get("/", response_class=HTMLResponse, name="home")
 async def portfolio(
@@ -111,13 +148,6 @@ async def portfolio(
     user: Annotated[CurrentUser | None, Depends(get_session_user_optional)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> HTMLResponse:
-    """Site root.
-
-    Anonymous → landing splash.
-    Logged in → Portfolio: one summary card per site the user can see,
-                with building count + capacity totals. Live PV per site
-                is lazy-loaded via /sites/{id}/live.json.
-    """
     if user is None:
         return templates.TemplateResponse(
             request,
@@ -125,58 +155,48 @@ async def portfolio(
             template_context(request, user=None),
         )
 
-    buildings = await _visible_buildings(user, db)
-
-    # Group visible buildings by site, accumulating totals.
-    # site_id → {site, count, kwp, kwh}
-    site_ids = {b.site_id for b in buildings}
-    sites_by_id: dict[uuid.UUID, Site] = {}
-    if site_ids:
-        site_rows = await db.execute(select(Site).where(Site.id.in_(site_ids)))
-        sites_by_id = {s.id: s for s in site_rows.scalars().all()}
-
-    summaries: list[dict] = []
-    grouped: dict[uuid.UUID, list[Building]] = {}
-    for b in buildings:
-        grouped.setdefault(b.site_id, []).append(b)
-
-    for sid, bldgs in grouped.items():
-        site = sites_by_id.get(sid)
-        summaries.append({
-            "site_id": sid,
-            "site_name": site.name if site else "Onbekende site",
-            "count": len(bldgs),
-            "total_kwp": sum((b.installed_kwp or 0) for b in bldgs),
-            "total_kwh": sum((b.battery_kwh or 0) for b in bldgs),
-            "building_ids": [str(b.id) for b in bldgs],
-        })
-    # Stable order: by site name.
-    summaries.sort(key=lambda s: s["site_name"])
-
+    groups, total = await _grouped_by_site(user, db)
+    # Template expects a flat list of summary dicts (no buildings inside).
+    summaries = [
+        {
+            "site_id":   g["site_id"],
+            "site_name": g["site_name"],
+            "count":     g["count"],
+            "total_kwp": g["total_kwp"],
+            "total_kwh": g["total_kwh"],
+            "building_ids": [str(b.id) for b in g["buildings"]],
+        }
+        for g in groups
+    ]
     return templates.TemplateResponse(
         request,
         "pages/portfolio.html",
         template_context(
             request, user=user, page_title="Portfolio",
-            summaries=summaries, total_buildings=len(buildings),
+            summaries=summaries, total_buildings=total,
         ),
     )
 
 
-# ─── Gebouwen (/buildings) — card grid ───────────────────────────────
+# ─── Gebouwen (/buildings) — card grid GROUPED BY SITE ───────────────
 @router.get("/buildings", response_class=HTMLResponse, name="buildings_list")
 async def buildings_list(
     request: Request,
     user: Annotated[CurrentUser, Depends(get_session_user_required)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> HTMLResponse:
-    """The building card grid (previously at "/")."""
-    buildings = await _visible_buildings(user, db)
+    """Building cards grouped under their site, each section collapsible.
+
+    Sections default to expanded (using the native <details open>).
+    The template handles rendering — see pages/buildings.html.
+    """
+    groups, total = await _grouped_by_site(user, db)
     return templates.TemplateResponse(
         request,
         "pages/buildings.html",
         template_context(
-            request, user=user, page_title="Gebouwen", buildings=buildings,
+            request, user=user, page_title="Gebouwen",
+            groups=groups, total_buildings=total,
         ),
     )
 
@@ -189,15 +209,7 @@ async def site_live_json(
     user: Annotated[CurrentUser, Depends(get_session_user_required)],
     db: Annotated[AsyncSession, Depends(get_session)],
 ) -> JSONResponse:
-    """Aggregate live PV (kW) summed across the user's visible buildings
-    in this site. Used by the Portfolio summary cards.
-
-    Permission: we only sum buildings the user can actually see, so a
-    user never learns about buildings outside their visibility even via
-    the aggregate. If the site has no visible buildings → 403.
-    """
     visible = await buildings_visible_to(user, db)
-    # Which visible buildings belong to this site?
     stmt = (
         select(Building.id)
         .where(
@@ -346,5 +358,3 @@ async def prices_json(
 
 
 __all__ = ["router"]
-
-_ = selectinload  # reserved for future eager-loading of site.buildings
