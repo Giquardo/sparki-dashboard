@@ -1,0 +1,14 @@
+{#
+  Skeleton shown inside a card's live-data slot until HTMX loads the
+  real tile. Pure CSS pulse — no JS. Mirrors the 3-metric grid layout
+  of building_tile.html so there's no layout shift on swap.
+#}
+<div class="grid grid-cols-3 gap-2 animate-pulse">
+    {% for _ in range(3) %}
+    <div class="rounded-lg bg-sparki-navy/40 px-2 py-2.5 flex flex-col items-center">
+        <div class="h-2 w-8 rounded bg-sparki-navy-soft mb-2"></div>
+        <div class="h-4 w-10 rounded bg-sparki-navy-soft mb-1.5"></div>
+        <div class="h-2 w-6 rounded bg-sparki-navy-soft"></div>
+    </div>
+    {% endfor %}
+</div>

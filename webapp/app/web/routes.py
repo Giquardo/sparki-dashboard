@@ -1,20 +1,18 @@
 """
-HTML routes for the Sparki dashboard UI.
+HTML auth routes for the Sparki dashboard UI.
 
 Step 3.2 — real Keycloak Authorization Code + PKCE flow.
+Step 3.3 — the "/" (home/portfolio) route moved to app/web/buildings_web.py.
 
-Public browser-facing routes:
-  GET  /                  Portfolio (logged in) OR landing splash
+Routes here:
   GET  /login             302 → Keycloak login page
   GET  /auth/callback     Exchanges the auth code for tokens, sets session
   GET  /logout            Full SSO logout (clear cookie + Keycloak logout)
   POST /logout            Same as GET — both kept for form/anchor flexibility
+  GET  /dev/login         DEV-ONLY stub: log in as a seeded demo user
 
-Dev-only:
-  GET  /dev/login         Stub session for the seeded demo users.
-                          404 in production. Kept because (a) the thesis
-                          demo needs a one-click login per role, and
-                          (b) the test suite reuses it as a fast oracle.
+The home route ("/") lives in buildings_web.py because it now renders
+the portfolio (a buildings concern).
 """
 
 from __future__ import annotations
@@ -46,17 +44,12 @@ from app.web.templates_env import template_context, templates
 
 logger = logging.getLogger("sparki.web.routes")
 
-# No prefix — HTML lives at the site root (/, /login, /logout, ...).
 router = APIRouter(tags=["web"], include_in_schema=False)
 
 
 # ─── Helpers ─────────────────────────────────────────────────────────
 def _callback_url(request: Request) -> str:
-    """Build the absolute /auth/callback URL using the request's host.
-
-    Must match exactly what we register at Keycloak and what we use in
-    the auth-code redemption — Keycloak compares them byte-for-byte.
-    """
+    """Build the absolute /auth/callback URL using the request's host."""
     return str(request.url_for("auth_callback"))
 
 
@@ -65,41 +58,13 @@ def _site_root_url(request: Request) -> str:
     return str(request.url_for("home"))
 
 
-# ─── Home / Portfolio ────────────────────────────────────────────────
-@router.get("/", response_class=HTMLResponse, name="home")
-async def home(
-    request: Request,
-    user: Annotated[CurrentUser | None, Depends(get_session_user_optional)],
-) -> HTMLResponse:
-    """Anonymous → landing splash. Logged in → dashboard placeholder."""
-    if user is None:
-        return templates.TemplateResponse(
-            request,
-            "pages/landing.html",
-            template_context(request, user=None),
-        )
-    return templates.TemplateResponse(
-        request,
-        "pages/placeholder.html",
-        template_context(request, user=user, page_title="Portfolio"),
-    )
-
-
 # ─── Login: kick off the OAuth dance ─────────────────────────────────
 @router.get("/login", name="login", response_model=None)
 async def login(
     request: Request,
     user: Annotated[CurrentUser | None, Depends(get_session_user_optional)],
 ) -> RedirectResponse:
-    """Redirect the browser to Keycloak's login page.
-
-    Implementation:
-      1. Bail out early if already logged in
-      2. Generate state + PKCE pair
-      3. Stash them in the flight cookie
-      4. Build the Keycloak auth URL with code_challenge
-      5. 302 the browser there
-    """
+    """Redirect the browser to Keycloak's login page."""
     if user is not None:
         return RedirectResponse(url="/", status_code=status.HTTP_303_SEE_OTHER)
 
@@ -132,15 +97,7 @@ async def auth_callback(
     error: Annotated[str | None, Query(description="OAuth error code")] = None,
     error_description: Annotated[str | None, Query()] = None,
 ) -> RedirectResponse | HTMLResponse:
-    """Handle Keycloak's redirect back to us after the user authenticates.
-
-    On success: token exchange → JWT decode → DB user lookup → set session
-    cookie → 302 to /.
-
-    On any failure we render a plain error page (NOT a redirect to /login,
-    which could loop). The flight cookie is always cleared.
-    """
-    # ─── Reject Keycloak-reported errors (user cancelled, etc.) ──────
+    """Handle Keycloak's redirect back to us after the user authenticates."""
     if error is not None:
         logger.info("Keycloak returned error: %s (%s)", error, error_description)
         return _render_login_error(
@@ -149,7 +106,6 @@ async def auth_callback(
             detail=error_description or error,
         )
 
-    # ─── Reject missing parameters ───────────────────────────────────
     if not code or not state:
         return _render_login_error(
             request,
@@ -157,7 +113,6 @@ async def auth_callback(
             detail="Keycloak stuurde geen geldige antwoord (code/state ontbreekt).",
         )
 
-    # ─── Verify state ↔ flight cookie ────────────────────────────────
     flight = read_oauth_flight_cookie(request)
     if flight is None:
         return _render_login_error(
@@ -179,7 +134,6 @@ async def auth_callback(
                    "Probeer opnieuw in te loggen.",
         )
 
-    # ─── Redeem the code at Keycloak ─────────────────────────────────
     try:
         tokens = await oauth.exchange_code_for_token(
             code=code,
@@ -193,7 +147,6 @@ async def auth_callback(
             detail=str(e),
         )
 
-    # ─── Validate the access token via the existing decoder ──────────
     try:
         payload = await decode_token(tokens.access_token)
     except JWTError as e:
@@ -204,7 +157,6 @@ async def auth_callback(
             detail="Het door Keycloak afgegeven token is ongeldig.",
         )
 
-    # ─── Look up the local user row by Keycloak sub UUID ─────────────
     row = await db.execute(select(User).where(User.id == payload.sub))
     user = row.scalar_one_or_none()
     if user is None:
@@ -219,7 +171,6 @@ async def auth_callback(
                    "nog niet aangemaakt in Sparki. Neem contact op met de beheerder.",
         )
 
-    # ─── All checks passed — issue the session cookie ────────────────
     logger.info(
         "OAuth login complete: user=%s role=%s",
         user.email, user.role.value,
@@ -231,11 +182,7 @@ async def auth_callback(
 
 
 def _constant_time_eq(a: str, b: str) -> bool:
-    """Compare two strings in constant time to prevent timing attacks.
-
-    Plain `==` is fine for non-secret tokens like OAuth state, but
-    constant-time comparison costs nothing and keeps reviewers happy.
-    """
+    """Compare two strings in constant time to prevent timing attacks."""
     import hmac
     return hmac.compare_digest(a.encode("ascii"), b.encode("ascii"))
 
@@ -261,16 +208,7 @@ def _render_login_error(
 @router.post("/logout", name="logout_post")
 @router.get("/logout", name="logout")
 async def logout(request: Request) -> RedirectResponse:
-    """Clear our session cookie AND log out at Keycloak.
-
-    Sequence:
-      1. Build the Keycloak logout URL with post_logout_redirect_uri=/
-      2. Set up a redirect to that URL
-      3. Attach Set-Cookie headers that clear our session cookie
-
-    The browser follows the redirect, Keycloak clears its own session,
-    Keycloak 302's back to /, and the user lands on the anonymous splash.
-    """
+    """Clear our session cookie AND log out at Keycloak."""
     keycloak_logout_url = oauth.build_logout_url(
         post_logout_redirect_uri=_site_root_url(request),
     )
@@ -278,12 +216,11 @@ async def logout(request: Request) -> RedirectResponse:
         url=keycloak_logout_url, status_code=status.HTTP_303_SEE_OTHER,
     )
     clear_session_cookie(response)
-    # Also clear any lingering flight cookie just to be tidy
     clear_oauth_flight_cookie(response)
     return response
 
 
-# ─── DEV-ONLY: stub login (kept per Step 3.2 decision) ───────────────
+# ─── DEV-ONLY: stub login ────────────────────────────────────────────
 DevRoleParam = Literal["staff", "owner", "tenant"]
 
 _DEV_ROLE_TO_EMAIL: dict[str, str] = {
@@ -299,12 +236,7 @@ async def dev_login(
     db: Annotated[AsyncSession, Depends(get_session)],
     as_: DevRoleParam = "staff",
 ) -> RedirectResponse:
-    """Dev-only shortcut: set the session cookie to a seeded demo user.
-
-    Refuses to run in production. Kept after Step 3.2 because:
-      - the thesis demo needs one-click login per role
-      - the original 6 Step 3.1 tests use it as a fast oracle
-    """
+    """Dev-only shortcut: set the session cookie to a seeded demo user."""
     if settings.is_production:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -331,6 +263,4 @@ async def dev_login(
 
 __all__ = ["router"]
 
-# Silence unused-import warning while keeping the symbol available
-# for future use in admin pages (Step 3.5+).
 _ = UserRole

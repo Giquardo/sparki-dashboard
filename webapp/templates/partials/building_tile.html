@@ -1,0 +1,74 @@
+{#
+  Live-data fragment for one building card.
+
+  Rendered by GET /buildings/{id}/tile and swapped into the card body
+  by HTMX. Receives `current` (a BuildingCurrent) in the context.
+
+  Shows three key live metrics:
+    - PV production (kW)
+    - Battery state of charge (%)
+    - Grid flow (kW) — sign-aware: positive = exporting (green),
+      negative = importing (orange). Matches the Sigencloud convention
+      documented in CONTEXT §7.
+
+  If `current.timestamp` is None, no recent data exists → show a muted
+  "geen recente data" note instead of zeros.
+#}
+{% if current.timestamp %}
+<div class="grid grid-cols-3 gap-2 text-center">
+
+    {# ─── PV ─────────────────────────────────────────────────────── #}
+    <div class="rounded-lg bg-sparki-navy/40 px-2 py-2.5">
+        <p class="text-[10px] uppercase tracking-wider text-sparki-gray-500
+                  font-semibold mb-1">PV</p>
+        <p class="text-base font-bold text-sparki-warning leading-none">
+            {{ current.pv_kw|nl_number(1) }}
+        </p>
+        <p class="text-[10px] text-sparki-gray-500 mt-0.5">kW</p>
+    </div>
+
+    {# ─── Battery SoC ────────────────────────────────────────────── #}
+    <div class="rounded-lg bg-sparki-navy/40 px-2 py-2.5">
+        <p class="text-[10px] uppercase tracking-wider text-sparki-gray-500
+                  font-semibold mb-1">Batterij</p>
+        <p class="text-base font-bold leading-none
+                  {% if current.battery_soc is not none and current.battery_soc < 20 %}
+                      text-sparki-warning
+                  {% else %}
+                      text-sparki-success
+                  {% endif %}">
+            {{ current.battery_soc|nl_number(0) }}
+        </p>
+        <p class="text-[10px] text-sparki-gray-500 mt-0.5">%</p>
+    </div>
+
+    {# ─── Grid flow ──────────────────────────────────────────────── #}
+    <div class="rounded-lg bg-sparki-navy/40 px-2 py-2.5">
+        <p class="text-[10px] uppercase tracking-wider text-sparki-gray-500
+                  font-semibold mb-1">Net</p>
+        <p class="text-base font-bold leading-none
+                  {% if current.grid_kw is not none and current.grid_kw >= 0 %}
+                      text-sparki-success
+                  {% else %}
+                      text-sparki-warning
+                  {% endif %}">
+            {{ current.grid_kw|nl_number(1) }}
+        </p>
+        <p class="text-[10px] text-sparki-gray-500 mt-0.5">
+            {% if current.grid_kw is not none and current.grid_kw >= 0 %}
+                kW terug
+            {% else %}
+                kW afname
+            {% endif %}
+        </p>
+    </div>
+</div>
+{% else %}
+<div class="flex items-center justify-center min-h-[72px]
+            text-sm text-sparki-gray-500">
+    <span class="inline-flex items-center gap-2">
+        <span class="w-2 h-2 rounded-full bg-sparki-gray-500"></span>
+        Geen recente data
+    </span>
+</div>
+{% endif %}
