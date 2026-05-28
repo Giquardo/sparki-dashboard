@@ -70,6 +70,35 @@ All three accounts use the same password defined in `.env`:
 
 ---
 
+# Inloggen (web UI)
+
+The dashboard uses Keycloak's OAuth 2.0 Authorization Code + PKCE flow.
+
+1. Open the dashboard at **http://localhost:8000/**
+2. Click **Inloggen** → you're redirected to the Keycloak login page
+3. Sign in with one of the demo accounts (password from `.env`)
+4. Keycloak redirects back to `/auth/callback`, a session cookie is set,
+   and you land on the portfolio dashboard
+5. **Uitloggen** clears the session and logs you out at Keycloak too
+
+The browser never holds a JWT — only an `HttpOnly`, signed session
+cookie containing the user's ID. Permissions are re-derived server-side
+on every request.
+
+**Important — use a consistent hostname.** Keycloak matches redirect URIs
+by exact string, so `localhost` and `127.0.0.1` are treated as different.
+The seeded realm allows both `http://localhost:8000/*` and
+`http://127.0.0.1:8000/*`. If you add another hostname or port, register
+it in the Keycloak admin UI under Clients → webapp → Valid redirect URIs,
+Web origins, and Valid post logout redirect URIs.
+
+> **Dev shortcut:** in development only, `GET /dev/login?as_=staff`
+> (`owner` / `tenant`) logs you straight in as a seeded user without the
+> Keycloak round-trip — handy for quick role-switching and demos. This
+> route returns 404 when `ENVIRONMENT=production`.
+
+---
+
 ## REST API
 
 All endpoints require a Bearer JWT from Keycloak (except `/healthz`,
@@ -89,19 +118,26 @@ All endpoints require a Bearer JWT from Keycloak (except `/healthz`,
 
 See `/docs` for full interactive documentation.
 
+  The table above lists the JSON API (Bearer-authenticated). The web UI
+  adds server-rendered HTML routes (`/`, `/login`, `/auth/callback`,
+  `/logout`) that authenticate via session cookie instead. The former
+  root descriptor previously at `/` now lives at `GET /api`. See
+  CONTEXT.md §8 for the full HTML route list.
+
 ---
 
 ## Running the test suite
 
-The webapp container ships with a pytest integration suite (39 tests)
-that validates the full stack — auth, permissions, API endpoints,
-audit logging — against the live Docker containers. No mocks.
+  The webapp container ships with a pytest integration suite (54 tests)
+  that validates the full stack — auth, permissions, API endpoints,
+  audit logging, the HTML UI layer, and the Keycloak OAuth login flow —
+  against the live Docker containers. No mocks.
 
 ```bash
 docker compose exec -e KEYCLOAK_URL=http://keycloak:8080 webapp pytest tests/
 ```
 
-Expected output: `39 passed in ~6s`.
+  Expected output: `54 passed in ~7s`.
 
 Run a single test file or test:
 
@@ -131,8 +167,13 @@ docker compose exec -e KEYCLOAK_URL=http://keycloak:8080 webapp \
   - [x] Permission layer (`buildings_visible_to`) + 403 audit logging
   - [x] ENTSO-E day-ahead prices (live-ready with mock fallback)
   - [x] Integration test suite (39 tests, all passing)
-- [ ] **Phase 3 — UI fundering** (1–7 juni)
-- [ ] **Phase 4 — Live data + oplevering** (8–12 juni)
+- [~] **Phase 3 — UI fundering** (1–7 juni) — *in progress, ahead of schedule*
+    - [x] Step 3.1 — Jinja2 + Tailwind base layout, role-aware sidebar,
+          signed-cookie session
+    - [x] Step 3.2 — Keycloak Authorization Code + PKCE login flow,
+          full SSO logout
+    - [ ] Step 3.3 — Portfolio page (live building list)
+    - [ ] Step 3.4 — Building detail (live tiles + Chart.js history)- [ ] **Phase 4 — Live data + oplevering** (8–12 juni)
 
 ---
 

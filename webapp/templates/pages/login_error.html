@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+
+{% block title %}{{ page_title }} — Sparki{% endblock %}
+{% block page_title %}{{ page_title }}{% endblock %}
+
+{% block content %}
+<div class="max-w-xl">
+    <div class="p-5 rounded-lg bg-sparki-navy-light
+                border border-sparki-red/40 mb-6">
+        <p class="text-xs uppercase font-bold tracking-widest
+                  text-sparki-red mb-2">Inloggen mislukt</p>
+        <p class="text-sm text-sparki-gray-200 leading-relaxed">
+            {{ detail }}
+        </p>
+    </div>
+
+    <div class="flex gap-3">
+        <a href="/login"
+           class="inline-flex items-center gap-2 px-5 py-2.5 rounded-md
+                  bg-sparki-red hover:bg-sparki-red-dark
+                  text-sparki-white text-sm font-semibold
+                  transition-colors shadow-sparki">
+            Opnieuw inloggen
+            <svg xmlns="http://www.w3.org/2000/svg" fill="none"
+                 viewBox="0 0 24 24" stroke-width="2" stroke="currentColor"
+                 class="w-4 h-4">
+                <path stroke-linecap="round" stroke-linejoin="round"
+                      d="M17.25 8.25 21 12m0 0-3.75 3.75M21 12H3"/>
+            </svg>
+        </a>
+        <a href="/"
+           class="inline-flex items-center px-5 py-2.5 rounded-md
+                  bg-sparki-navy-soft hover:bg-sparki-navy-light
+                  text-sparki-gray-200 hover:text-sparki-white
+                  text-sm font-semibold transition-colors">
+            Terug naar start
+        </a>
+    </div>
+</div>
+{% endblock %}

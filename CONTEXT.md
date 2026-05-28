@@ -153,6 +153,21 @@ All under base path. JWT required unless noted.
 History query guards: `interval_seconds` 10–3600, max range 30 days,
 `end` must be after `start`.
 
+### HTML routes (server-rendered, session-cookie auth)
+
+| Method   | Path             | Purpose                              | Public? |
+|----------|------------------|--------------------------------------|---------|
+| GET      | `/`              | Landing splash / portfolio dashboard | ✓ (varies by session) |
+| GET      | `/login`         | Start Keycloak OAuth flow (303)      | ✓ |
+| GET      | `/auth/callback` | OAuth redirect target, sets session  | ✓ |
+| GET/POST | `/logout`        | Full SSO logout                      | ✓ |
+| GET      | `/dev/login`     | Dev-only stub login (404 in prod)    | ✓ (dev) |
+| —        | `/static/*`      | CSS, images                          | ✓ |
+| GET      | `/api`           | JSON API descriptor (moved from `/`) | ✓ |
+
+HTML routes authenticate via the signed `sparki_session` cookie, NOT the
+Bearer JWT. The JSON `/api/*` routes are unchanged and still Bearer-only.
+
 ---
 
 ## 9. Seed Data (`scripts/seed.py`, Idempotent)
@@ -222,65 +237,49 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
 
 ## 13. The Current State (always update this section!)
 
-**As of:** 27 May 2026
+**As of:** 28 May 2026
 
-**Completed this week:**
-- [x] Step 2.5 — Permission layer (`buildings_visible_to`)
-- [x] Step 2.5C — Audit logging with independent session+commit
-- [x] Step 2.7 — ENTSO-E live-ready integration + mock fallback
-- [x] Bonus — Automated pytest integration suite (39 tests, all passing)
-- [x] Dockerfile: `INSTALL_DEV` build arg for dev tools
-- [x] pytest config: cache to `/tmp` (sparki user is non-root)
-- [x] Test fixtures: function-scoped client to handle
-      pytest-asyncio v0.24's per-test event loop
-- [x] Project ahead of schedule — Fase 2 done 4 days early
-- [x] **Step 3.1 — Tailwind + Jinja2 base layout** *(done 28 May, 4 days early)*
-- [x] New `app/web/` package: `session.py`, `templates_env.py`,
-        `routes.py` + `__init__.py`
-  - [x] Sparki dark theme (navy `#0A1F44` / red `#E63946`) matching
-        sparki.be marketing site — Tailwind via CDN with custom tokens
-  - [x] Inter via Google Fonts, HTMX 1.9 + Chart.js 4 pre-loaded
-  - [x] Role-aware sidebar (Portfolio + Gebouwen + Prijzen for all;
-        Gebruikers for staff/owner; Instellingen for staff only)
-  - [x] Signed-cookie session via `itsdangerous` (HMAC, payload =
-        user UUID only, 8h TTL, `HttpOnly` + `SameSite=Lax`,
-        `Secure` in prod)
-  - [x] Dual-auth pattern: `get_session_user_optional/_required` for
-        HTML routes; existing `get_current_user` (Bearer) untouched
-        for JSON API
-  - [x] Dev-only stub login at `/dev/login?as_=staff|owner|tenant`
-        (404 in production)
-  - [x] `/api` JSON descriptor (previously at `/`); HTML now owns root
-  - [x] StaticFiles mount at `/static`
-  - [x] Templates + static bind-mounted in dev (hot-reload) and
-        baked into image for prod (Dockerfile `COPY` lines)
-  - [x] 6 new integration tests in `tests/test_web_layout.py`
-        (anonymous render, per-role dev login, role-aware sidebar,
-        logout cookie clearing, tampered-cookie resistance)
-  - [x] **All 45 tests passing** (39 existing + 6 new)
-  - [x] **Bug caught + fixed in initial delivery:** the `/login`
-        route had a union return type `HTMLResponse | RedirectResponse`
-        which FastAPI rejects unless `response_model=None` is set.
-        Lesson logged below (gotcha #9).
-
+**Completed (Phase 2 + Phase 3 so far):**
+- [x] Step 2.5–2.7 — Permissions, audit logging, ENTSO-E (see git history)
+- [x] Step 3.1 — Tailwind + Jinja2 base layout, role-aware sidebar,
+      signed-cookie session, dev stub login (done 28 May)
+- [x] **Step 3.2 — Real Keycloak Authorization Code + PKCE login flow**
+      *(done 28 May, still ahead of schedule)*
+  - [x] New `app/web/oauth.py`: state + PKCE generation, Keycloak URL
+        builders (auth + end-session), server-to-server token exchange
+  - [x] `/login` → 303 to Keycloak auth endpoint with `code_challenge`
+        (S256); stashes state + verifier in a separate signed "flight"
+        cookie (10-min TTL, distinct signing salt from the session cookie)
+  - [x] `/auth/callback` → verifies state (constant-time), redeems code
+        via internal Keycloak URL, decodes the JWT through the existing
+        `decode_token()`, looks up the local user by `sub`, sets the
+        session cookie, 303 to `/`
+  - [x] `/logout` → clears session + flight cookies AND redirects to
+        Keycloak's `end_session_endpoint` (full SSO logout)
+  - [x] `pages/login_error.html` — Dutch error page for failed/cancelled
+        logins (state mismatch, expired flight, Keycloak error, etc.)
+  - [x] `/dev/login` kept (404 in prod) for demo + as a fast test oracle
+  - [x] 9 new tests in `tests/test_keycloak_login.py`
+  - [x] Updated `tests/test_web_layout.py`: `/login` test now expects the
+        303 redirect (it rendered a 200 placeholder in 3.1)
+  - [x] **54 tests passing** (39 API + 6 layout + 9 Keycloak)
+  - [x] Verified the live flow end-to-end for all three roles in the
+        browser (login → dashboard → logout)
+  - [x] Pre-delivery validation upgraded: routes are now import-tested
+        against a real `FastAPI()` mount before shipping (catches the
+        decoration-time errors that bit us in 3.1)
 
 **In progress:**
-- [ ] Waiting for ENTSO-E API token approval (mail sent — typically
-      1–3 working days)
+- [ ] Waiting for ENTSO-E API token approval (mock fallback active)
 - [ ] Waiting for Sigencloud API token from customer
 
 **Next session:**
-- [ ] Step 3.2 — Real Keycloak Authorization Code + PKCE flow
-  - [ ] `/login` builds the Keycloak auth URL with `state` + PKCE
-        `code_verifier` (stash both in a short-lived signed cookie)
-  - [ ] `/auth/callback` exchanges `code` → tokens, calls
-        `set_session_cookie(user.id)`, redirects to original target
-  - [ ] `/logout` also hits Keycloak's `end_session_endpoint`
-  - [ ] Remove `/dev/login` (or keep behind `ENVIRONMENT=development`
-        for thesis-demo convenience)
-  - [ ] Mobile sidebar drawer (the header hamburger is a placeholder)
-- [ ] Step 3.3 — Portfolio page (`GET /` → live list of buildings the
-      user can see, rendered from `/api/buildings` data)
+- [ ] Step 3.3 — Portfolio page: `GET /` (logged in) renders the live
+      list of buildings visible to the user, sourced from the same
+      `buildings_visible_to()` path the JSON API uses. Per-building
+      summary card (name, PV now, battery SoC, grid in/out).
+- [ ] Step 3.4 — Building detail page: live tiles (HTMX 30s polling) +
+      Chart.js history graphs + price overlay.
 
 ---
 
@@ -313,7 +312,32 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
 10. **pytest-asyncio function-scoped client fixture.** Session scope
     fails because v0.24 makes a new event loop per test. Documented
     in `conftest.py` so future-me doesn't change it.
+11. **Server-side session cookie for the UI, not localStorage JWTs.**
+    The browser never holds a JWT. After Keycloak login we store only
+    the user's UUID in an HMAC-signed `HttpOnly` cookie. Permissions are
+    re-derived from our own DB each request. XSS can't exfiltrate a token
+    that isn't there.
 
+12. **Authorization Code + PKCE even though webapp is a confidential
+    client.** Defense in depth, OAuth 2.1-aligned, ~10 extra lines. The
+    PKCE verifier lives in a short-lived signed "flight" cookie with a
+    DIFFERENT signing salt than the session cookie, so a leaked flight
+    cookie can never be replayed as a session.
+
+13. **Token exchange uses the INTERNAL Keycloak URL; browser-facing
+    URLs use the PUBLIC one.** `keycloak_internal_url` (Docker network)
+    for server-to-server `/token`; `keycloak_public_url` (localhost:8080)
+    for the auth + logout URLs the browser must reach. Mirrors the
+    existing split in `app/auth/keycloak.py`.
+
+14. **JWT validation stays in ONE place.** The callback decodes the
+    Keycloak-issued access token via the existing `decode_token()`
+    rather than re-implementing verification. Keycloak-specific logic
+    lives only in `app/auth/keycloak.py` + `app/web/oauth.py`.
+
+15. **Full SSO logout.** `/logout` clears our cookie and bounces through
+    Keycloak's `end_session_endpoint` so the IdP session ends too —
+    otherwise a "logged out" user could silently re-auth on next /login.
 ---
 
 ## 15. Recurring Operational Gotchas
@@ -350,6 +374,29 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
   Step 3.1 delivery on the `/login` route; static syntax checks
   (`ast.parse`) miss this because the validation only runs when the
   decorator actually executes.
+  - **`--import-realm` only imports if the realm does NOT already exist.**
+  Keycloak persists realms in Postgres (`KC_DB: postgres`). Once `sparki`
+  exists, edits to `keycloak/realm-export/sparki-realm.json` are ignored
+  on subsequent boots. To make the JSON authoritative again you must drop
+  the realm first: stop keycloak → `DROP SCHEMA keycloak CASCADE; CREATE
+  SCHEMA keycloak;` in Postgres → restart keycloak → re-run `seed.py`.
+  For one-off fixes, edit the client in the Keycloak admin UI instead.
+
+- **Keycloak redirect_uri matching is literal string comparison.**
+  `localhost` and `127.0.0.1` are the same host but DIFFERENT strings,
+  so a callback built with one won't match a redirect URI registered
+  with the other. `request.url_for()` builds the callback from whatever
+  host the browser used. Fix: register BOTH hostname variants in the
+  webapp client (Valid redirect URIs, Web origins, post-logout URIs), or
+  always access the app via the same hostname. Symptom seen: Keycloak
+  "Ongeldige parameter: redirect_uri".
+
+- **FastAPI rejects route handlers whose return type is a Union of
+  Response subclasses** unless `response_model=None` is on the decorator.
+  Fires at decoration/import time → uvicorn fails to load app → container
+  crash-loops. `ast.parse` misses it; only a real import + FastAPI mount
+  catches it. Now part of pre-delivery validation.
+  
 ---
 
 ## 16. PowerShell Convenience Functions

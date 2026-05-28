@@ -6,7 +6,8 @@ following the same pattern as the rest of tests/ — no mocks.
 
 Covered:
   - Anonymous GET / serves the landing splash
-  - Anonymous GET /login serves the login placeholder
+  - Anonymous GET /login now redirects to Keycloak (updated in Step 3.2 —
+    /login used to render a placeholder page; it now starts the OAuth flow)
   - /dev/login?as_=staff (etc.) sets a signed session cookie and
     redirects to /
   - With that cookie, GET / serves the dashboard placeholder
@@ -14,17 +15,19 @@ Covered:
   - The role-aware sidebar shows /users only to staff & owner
   - /logout clears the cookie
 
-These tests do NOT replace the 39 existing API tests — they're additive.
+These tests do NOT replace the existing API tests — they're additive.
 """
 
 from __future__ import annotations
 
 import os
+from urllib.parse import urlparse
 
 import httpx
 import pytest
 
 WEBAPP_URL = os.getenv("WEBAPP_URL", "http://localhost:8000")
+KEYCLOAK_PUBLIC_URL = os.getenv("KEYCLOAK_PUBLIC_URL", "http://localhost:8080")
 
 pytestmark = pytest.mark.asyncio
 
@@ -58,11 +61,27 @@ async def test_anonymous_root_serves_landing() -> None:
     assert "Inloggen" in body
 
 
-async def test_anonymous_login_serves_placeholder() -> None:
-    async with httpx.AsyncClient(base_url=WEBAPP_URL, timeout=10.0) as c:
+async def test_anonymous_login_redirects_to_keycloak() -> None:
+    """Updated in Step 3.2.
+
+    In Step 3.1, GET /login rendered an HTML placeholder (status 200).
+    In Step 3.2, /login kicks off the real OAuth Authorization Code
+    flow, so it now 303-redirects the browser to Keycloak's auth
+    endpoint. This test reflects the new, correct behavior. The full
+    parameter validation lives in test_keycloak_login.py.
+    """
+    async with httpx.AsyncClient(
+        base_url=WEBAPP_URL, timeout=10.0, follow_redirects=False,
+    ) as c:
         r = await c.get("/login")
-    assert r.status_code == 200
-    assert "Inloggen" in r.text
+    assert r.status_code == 303, (
+        f"Expected /login to redirect to Keycloak, got {r.status_code}"
+    )
+    location = r.headers["location"]
+    parsed = urlparse(location)
+    # Redirect target is Keycloak's authorization endpoint
+    assert parsed.netloc == urlparse(KEYCLOAK_PUBLIC_URL).netloc
+    assert "/protocol/openid-connect/auth" in parsed.path
 
 
 # ─── Dev stub login + dashboard render ───────────────────────────────
@@ -110,7 +129,14 @@ async def test_dev_login_tenant_sees_neither_admin_link() -> None:
 
 
 # ─── Logout ──────────────────────────────────────────────────────────
-async def test_logout_clears_cookie_and_lands_on_splash() -> None:
+async def test_logout_clears_cookie() -> None:
+    """Logout must clear the session cookie.
+
+    Note: in Step 3.2 logout also redirects to Keycloak's
+    end_session_endpoint (asserted thoroughly in test_keycloak_login.py).
+    Here we only check the cookie-clearing side-effect, which is what
+    this layout/session suite is responsible for.
+    """
     client = await _dev_login("staff")
     try:
         client_follow = httpx.AsyncClient(
@@ -119,10 +145,8 @@ async def test_logout_clears_cookie_and_lands_on_splash() -> None:
         )
         r = await client_follow.get("/logout")
         assert r.status_code == 303
-        # The Set-Cookie header should clear the session (Max-Age=0 or expired)
         set_cookie = r.headers.get("set-cookie", "")
         assert "sparki_session" in set_cookie
-        # max-age=0 OR expires in the past — itsdangerous sets it via delete_cookie
         assert ("max-age=0" in set_cookie.lower()
                 or "expires=" in set_cookie.lower())
         await client_follow.aclose()
