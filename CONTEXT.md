@@ -17,7 +17,8 @@ own building.
 
 **Context:** Bachelor thesis (Luik B), Giquardo Vandaele.
 **Deadline:** 12 June 2026.
-**Status:** Backend complete, ahead of schedule. UI is next.
+**Status:** Phases 1–3 complete, full dashboard live, ~10 days ahead
+of schedule. Phase 4 (Sigencloud live + Caddy + delivery) is next.
 
 ---
 
@@ -29,7 +30,7 @@ own building.
 | `influxdb` | InfluxDB 2.7 | Time-series: energy metrics + ENTSO-E prices |
 | `keycloak` | Keycloak 25 | OAuth2/OIDC, JWT, 3 roles |
 | `node-red` | Node-RED 4 (custom image) | Data ingestion (2 flows: mock energy + ENTSO-E prices) |
-| `webapp` | FastAPI + uv + asyncpg | REST API, JWT validation, permissions, audit |
+| `webapp` | FastAPI + uv + asyncpg | REST API, HTML UI, JWT validation, permissions, audit |
 | `caddy` | Caddy 2 | Reverse proxy (not yet active — Phase 4) |
 
 ---
@@ -38,9 +39,9 @@ own building.
 
 - **Backend:** FastAPI (Python 3.12, async), SQLAlchemy 2.0 async,
   Alembic migrations, Pydantic v2 schemas.
-- **Frontend (planned, not yet built):** Server-rendered Jinja2 +
-  Tailwind CSS via CDN + HTMX (30s polling) + Chart.js. NO build
-  pipeline. NO React/Vue/Svelte. Goal: <1500 lines of webapp code.
+- **Frontend:** Server-rendered Jinja2 + Tailwind CSS via CDN + HTMX
+  (30s polling) + Chart.js. NO build pipeline. NO React/Vue/Svelte.
+  Goal: <1500 lines of webapp code (currently met).
 - **Package manager:** `uv` (Astral). Lockfile `uv.lock` committed.
 - **Dev dependencies in container:** Baked in via Dockerfile
   `ARG INSTALL_DEV=true` → `uv pip install pytest pytest-asyncio
@@ -114,7 +115,7 @@ on the exception and the audit row is lost. See
   battery_soc, grid_kw, export_kw, import_kw, self_consumption_kw`
 - **Grid sign convention:** positive = exporting (Sigencloud-aligned)
 
-### Flow B: "ENTSO-E Prices (BE)"
+### Flow B: "ENTSO-E Prices (BE)" — LIVE since 28 May
 - Trigger: hourly
 - **Auto-routing in JS function:**
   - If `ENTSOE_API_TOKEN` is set and not the placeholder
@@ -129,19 +130,21 @@ on the exception and the audit row is lost. See
 - Measurement: `price`, tags: `zone=BE,source=entsoe|mock`,
   field: `eur_per_mwh`
 - **One env var to switch:** `ENTSOE_API_TOKEN` in `.env`,
-  recreate node-red container
+  `docker compose up -d --force-recreate node-red`
 
 ---
 
-## 8. REST API Endpoints
+## 8. REST API + HTML routes
+
+### JSON API (Bearer JWT)
 
 All under base path. JWT required unless noted.
 
 | Method | Path | Purpose | Public? |
 |--------|------|---------|---------|
-| GET | `/` | Root info | ✓ |
 | GET | `/healthz` | Liveness probe | ✓ |
 | GET | `/readyz` | Readiness (Postgres + InfluxDB ping) | ✓ |
+| GET | `/api` | JSON descriptor (was `/` before Phase 3) | ✓ |
 | GET | `/api/me` | Current user identity + role booleans | — |
 | GET | `/api/me/roles` | List of available roles | — |
 | GET | `/api/buildings` | Buildings visible to current user | — |
@@ -153,20 +156,38 @@ All under base path. JWT required unless noted.
 History query guards: `interval_seconds` 10–3600, max range 30 days,
 `end` must be after `start`.
 
-### HTML routes (server-rendered, session-cookie auth)
+### HTML routes (session cookie)
 
-| Method   | Path             | Purpose                              | Public? |
-|----------|------------------|--------------------------------------|---------|
-| GET      | `/`              | Landing splash / portfolio dashboard | ✓ (varies by session) |
-| GET      | `/login`         | Start Keycloak OAuth flow (303)      | ✓ |
-| GET      | `/auth/callback` | OAuth redirect target, sets session  | ✓ |
-| GET/POST | `/logout`        | Full SSO logout                      | ✓ |
-| GET      | `/dev/login`     | Dev-only stub login (404 in prod)    | ✓ (dev) |
-| —        | `/static/*`      | CSS, images                          | ✓ |
-| GET      | `/api`           | JSON API descriptor (moved from `/`) | ✓ |
+| Method   | Path                  | Page                                    | Roles |
+|----------|-----------------------|-----------------------------------------|-------|
+| GET      | `/`                   | Portfolio — per-site executive overview | logged-in users |
+| GET      | `/buildings`          | Gebouwen — card grid grouped by site    | logged-in users |
+| GET      | `/buildings/{id}`     | Building detail (live tiles + 2 charts) | visible to user |
+| GET      | `/prices`             | Prijzen — current price + 48u chart     | any logged-in user |
+| GET      | `/users`              | Gebruikers — orgs/sites/people tree     | staff + owner |
+| GET      | `/login`              | 303 → Keycloak                          | ✓ |
+| GET      | `/auth/callback`      | OAuth code → session cookie             | ✓ |
+| GET/POST | `/logout`             | Full SSO logout                         | ✓ |
+| GET      | `/dev/login`          | Dev-only stub (404 in prod)             | ✓ (dev) |
+| —        | `/static/*`           | CSS, images                             | ✓ |
 
-HTML routes authenticate via the signed `sparki_session` cookie, NOT the
-Bearer JWT. The JSON `/api/*` routes are unchanged and still Bearer-only.
+HTML routes authenticate via the signed `sparki_session` cookie, NOT
+the Bearer JWT. The JSON `/api/*` routes are unchanged and still
+Bearer-only.
+
+### Cookie-auth data routes (consumed by HTMX / Chart.js)
+
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/buildings/{id}/tile` | Compact 3-metric card tile (HTMX fragment) |
+| GET | `/buildings/{id}/tile/full` | Full live-metric set for detail page (HTMX) |
+| GET | `/buildings/{id}/history.json` | History JSON for Chart.js |
+| GET | `/prices/{zone}.json` | Price series JSON for Chart.js |
+| GET | `/prices/{zone}/current.json` | Current price for headline tile |
+| GET | `/sites/{id}/live.json` | Aggregate live PV for a site |
+
+All building-scoped data routes pass through `buildings_visible_to()`.
+Prices are market data — auth required but no building scope.
 
 ---
 
@@ -196,16 +217,15 @@ full list of variables. The relevant categories are:
 - **Keycloak:** `KEYCLOAK_ADMIN_PASSWORD`, `KEYCLOAK_CLIENT_SECRET`
 - **Node-RED:** `NODERED_ADMIN`, `NODERED_ADMIN_PASSWORD_HASH`
   (bcrypt, must be SINGLE-quoted in `.env` to prevent `$` interpolation)
-- **ENTSO-E:** `ENTSOE_API_TOKEN` (placeholder by default,
-  mock-fallback in Node-RED until a real token arrives — 1–3 working
-  days after mailing `transparency@entsoe.eu`)
+- **ENTSO-E:** `ENTSOE_API_TOKEN` — **live since 28 May**;
+  mock-fallback path still intact if the token is unset or placeholder
 - **ENTSO-E:** `ENTSOE_BIDDING_ZONE` (default `10YBE----------2` for BE)
-- **App secrets:** `FERNET_KEY` (for at-rest encryption of Sigencloud
-  credentials), session secret, etc.
+- **App secrets:** `WEBAPP_SECRET_KEY` (session cookie HMAC, ≥32 chars),
+  `FERNET_KEY` (for at-rest encryption of Sigencloud credentials)
 
 ---
 
-## 11. Test Suite (39 tests, 100% passing, ~6s runtime)
+## 11. Test Suite (78+ tests, 100% passing, ~9s runtime)
 
 Run: `docker compose exec -e KEYCLOAK_URL=http://keycloak:8080 webapp pytest tests/`
 
@@ -213,10 +233,16 @@ Run: `docker compose exec -e KEYCLOAK_URL=http://keycloak:8080 webapp pytest tes
 |------|-------|--------|
 | `test_auth.py` | 7 | `/api/me`, `/api/me/roles`, auth failures (401) |
 | `test_buildings_list.py` | 6 | Per-role visibility, response shape, sort order |
-| `test_buildings_detail.py` | 11 | current + history, 403 patterns, validation |
+| `test_buildings_detail.py` | 10 | Detail page, full tile, history.json, prices.json |
 | `test_prices.py` | 8 | zones, ranges, MWh→kWh conversion, auth |
 | `test_audit.py` | 3 | denied → DB, allowed → not DB |
 | `test_health.py` | 3 | root, /healthz, /readyz |
+| `test_web_layout.py` | 6 | layout shell, dev login, role-aware sidebar |
+| `test_keycloak_login.py` | 9 | real OAuth flow, callback edges, SSO logout |
+| `test_portfolio.py` | 8 | Gebouwen card grid, grouped-by-site, tile permissions |
+| `test_portfolio_restructure.py` | 9 | Per-site summary, site live aggregate |
+| `test_prices_page.py` | 6 | Prijzen page, current.json, zone validation |
+| `test_users_page.py` | 6 | Staff/owner/tenant scoping, hierarchy structure |
 
 All tests are **integration tests** — no mocks. Each token is fetched
 from the real Keycloak, building IDs are discovered dynamically via
@@ -230,56 +256,72 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
 |-------|--------|--------|
 | Fase 1: Foundation (Docker + DB + Auth) | up to 24 May | ✅ Done |
 | Fase 2: Backend (Ingestion + API + Permissions + ENTSO-E) | up to 31 May | ✅ Done |
-| **Fase 3: UI (Jinja + HTMX + Chart.js)** | **1–7 June** | 🔜 **Next** |
-| Fase 4: Sigencloud live + Caddy + delivery | 8–12 June | ⏳ |
+| Fase 3: UI (Jinja + HTMX + Chart.js) | 1–7 June | ✅ **Done, ~10 days early** |
+| **Fase 4: Sigencloud live + Caddy + delivery** | **8–12 June** | 🔜 **Next** |
 
 ---
 
 ## 13. The Current State (always update this section!)
 
-**As of:** 28 May 2026
+**As of:** 28 May 2026 — Phase 3 complete, every sidebar link works.
 
-**Completed (Phase 2 + Phase 3 so far):**
-- [x] Step 2.5–2.7 — Permissions, audit logging, ENTSO-E (see git history)
-- [x] Step 3.1 — Tailwind + Jinja2 base layout, role-aware sidebar,
-      signed-cookie session, dev stub login (done 28 May)
-- [x] **Step 3.2 — Real Keycloak Authorization Code + PKCE login flow**
-      *(done 28 May, still ahead of schedule)*
-  - [x] New `app/web/oauth.py`: state + PKCE generation, Keycloak URL
-        builders (auth + end-session), server-to-server token exchange
-  - [x] `/login` → 303 to Keycloak auth endpoint with `code_challenge`
-        (S256); stashes state + verifier in a separate signed "flight"
-        cookie (10-min TTL, distinct signing salt from the session cookie)
-  - [x] `/auth/callback` → verifies state (constant-time), redeems code
-        via internal Keycloak URL, decodes the JWT through the existing
-        `decode_token()`, looks up the local user by `sub`, sets the
-        session cookie, 303 to `/`
-  - [x] `/logout` → clears session + flight cookies AND redirects to
-        Keycloak's `end_session_endpoint` (full SSO logout)
-  - [x] `pages/login_error.html` — Dutch error page for failed/cancelled
-        logins (state mismatch, expired flight, Keycloak error, etc.)
-  - [x] `/dev/login` kept (404 in prod) for demo + as a fast test oracle
-  - [x] 9 new tests in `tests/test_keycloak_login.py`
-  - [x] Updated `tests/test_web_layout.py`: `/login` test now expects the
-        303 redirect (it rendered a 200 placeholder in 3.1)
-  - [x] **54 tests passing** (39 API + 6 layout + 9 Keycloak)
-  - [x] Verified the live flow end-to-end for all three roles in the
-        browser (login → dashboard → logout)
-  - [x] Pre-delivery validation upgraded: routes are now import-tested
-        against a real `FastAPI()` mount before shipping (catches the
-        decoration-time errors that bit us in 3.1)
+**Completed (Phases 1–3):**
+- [x] Phase 1 — Foundation: Docker stack, schemas, Keycloak realm, seed
+- [x] Phase 2 — Backend: ingestion, REST API, permissions, audit, ENTSO-E
+- [x] Step 3.1 — Tailwind/Jinja layout, role-aware sidebar, cookie session
+- [x] Step 3.2 — Keycloak Authorization Code + PKCE login, full SSO logout
+- [x] Step 3.3 — Portfolio page with HTMX-lazy live tiles (30s refresh)
+- [x] **Step 3.4 — Building detail page**
+  - Full live-metric set (10 fields) grouped into Productie / Verbruik /
+    Batterij / Net section cards
+  - Energiestroom chart: PV + verbruik + net (kW) with **ENTSO-E price
+    overlay** on a right axis (real day-ahead prices since 28 May)
+  - Batterijlading chart: SoC% with **price overlay** on a right axis
+    (same dual-axis pattern, shared `buildPriceDataset()` helper
+    between both charts)
+  - Cookie-auth web data routes (`/buildings/{id}/history.json`,
+    `/prices/{zone}.json`) so the browser never holds a JWT
+  - Timezone fix: `nl_time` Jinja filter converts UTC → Europe/Brussels
+    at render time (handles DST automatically)
+- [x] **Step 3.5 — Prijzen page** (`/prices`)
+  - Headline tiles: current price in €/MWh + €/kWh + valid hour
+  - 48u day-ahead chart with ENTSO-E attribution
+  - New `/prices/{zone}/current.json` cookie-auth route
+- [x] **Step 3.6 — Portfolio/Gebouwen restructure**
+  - `/` is now the executive overview: per-site summary cards with
+    building count + total kWp + total kWh + lazy-loaded live PV
+  - `/buildings` (Gebouwen) is the card grid, grouped by site under
+    collapsible native `<details>` sections, each with a mini-summary
+    header (count + kWp + kWh)
+  - Shared `_grouped_by_site()` helper so Portfolio and Gebouwen
+    derive their layout from the same data
+  - New `/sites/{id}/live.json` aggregate route (sums visible
+    buildings' PV; 403 if no visible buildings in that site)
+- [x] **Step 3.7 — Gebruikers page** (`/users`)
+  - Staff: all orgs → owners + tenants grouped by site
+  - Owner: their org only, tenants grouped by site with building chips,
+    sees fellow site_owners too
+  - Tenant: 403 + audit row (page is for managers, not residents)
+  - "Bewoners zonder gebouw" warning section surfaces data-integrity
+    issues (a tenant exists but has no assignment yet)
+- [x] **Test suite: 78+ tests passing** across 12 files. No mocks —
+  every test runs against the live stack.
+- [x] Pre-delivery validation upgrade kept paying off: every new
+  router is import-tested against a real `FastAPI()` mount before
+  shipping; templates rendered with edge cases (empty, single-tenant,
+  charging vs discharging, import vs export, no-data).
 
 **In progress:**
-- [ ] Waiting for ENTSO-E API token approval (mock fallback active)
-- [ ] Waiting for Sigencloud API token from customer
+- [ ] Waiting for Sigencloud API token from customer (ENTSO-E live;
+      Sigencloud still mock until token arrives)
 
-**Next session:**
-- [ ] Step 3.3 — Portfolio page: `GET /` (logged in) renders the live
-      list of buildings visible to the user, sourced from the same
-      `buildings_visible_to()` path the JSON API uses. Per-building
-      summary card (name, PV now, battery SoC, grid in/out).
-- [ ] Step 3.4 — Building detail page: live tiles (HTMX 30s polling) +
-      Chart.js history graphs + price overlay.
+**Next session — Phase 4:**
+- [ ] Swap Node-RED mock ingestion → live Sigencloud poll once the
+      customer token arrives; verify field mapping against mySigen
+- [ ] Activate Caddy as reverse proxy + Let's Encrypt HTTPS
+- [ ] Light admin tools for `sparki_staff` (create org / site / user)
+- [ ] Backup scripts (Postgres dump + InfluxDB snapshot)
+- [ ] Deployment-team handover docs
 
 ---
 
@@ -317,27 +359,56 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
     the user's UUID in an HMAC-signed `HttpOnly` cookie. Permissions are
     re-derived from our own DB each request. XSS can't exfiltrate a token
     that isn't there.
-
 12. **Authorization Code + PKCE even though webapp is a confidential
     client.** Defense in depth, OAuth 2.1-aligned, ~10 extra lines. The
     PKCE verifier lives in a short-lived signed "flight" cookie with a
     DIFFERENT signing salt than the session cookie, so a leaked flight
     cookie can never be replayed as a session.
-
 13. **Token exchange uses the INTERNAL Keycloak URL; browser-facing
     URLs use the PUBLIC one.** `keycloak_internal_url` (Docker network)
     for server-to-server `/token`; `keycloak_public_url` (localhost:8080)
     for the auth + logout URLs the browser must reach. Mirrors the
     existing split in `app/auth/keycloak.py`.
-
 14. **JWT validation stays in ONE place.** The callback decodes the
     Keycloak-issued access token via the existing `decode_token()`
     rather than re-implementing verification. Keycloak-specific logic
     lives only in `app/auth/keycloak.py` + `app/web/oauth.py`.
-
 15. **Full SSO logout.** `/logout` clears our cookie and bounces through
     Keycloak's `end_session_endpoint` so the IdP session ends too —
     otherwise a "logged out" user could silently re-auth on next /login.
+16. **Cookie-auth data routes instead of letting JS call the JSON API.**
+    The browser only has a session cookie, not a Bearer token, so Chart.js
+    can't hit `/api/*` directly. Adding parallel cookie-auth `.json`
+    routes on the web side that reuse the SAME service functions
+    (`get_history`, `get_price_series`) keeps the JSON API pure
+    (Bearer-only, 39 tests still valid) and the browser tokenless.
+17. **`<details>` / `<summary>` for collapsible sections, not JS.** The
+    Gebouwen page (sections per site) and Gebruikers page (sections per
+    org) both use native HTML — zero JavaScript, keyboard-accessible,
+    screen-reader friendly. Tailwind's `group-open:` variant rotates the
+    chevron via CSS only. State doesn't persist across page loads, which
+    is fine at thesis scale.
+18. **Aggregate routes never expose unauthorized buildings.** The
+    `/sites/{id}/live.json` endpoint sums only the buildings the caller
+    can already see, so a user can never learn about a building's
+    existence via the aggregate. If the site has no visible buildings
+    → 403 + audit row, identical to the direct-access response.
+19. **`nl_time` filter converts UTC at render time.** InfluxDB stores
+    UTC (correct); the UI shows Europe/Brussels (what the user wants).
+    The `templates_env.py` filter uses `zoneinfo`, so DST is handled
+    automatically. Naive datetimes are assumed UTC, then converted.
+20. **HTML routes use cookie session; JSON API uses Bearer. Same DB user.**
+    A single User row backs both auth paths. The HTML side's
+    `get_session_user_optional`/`_required` and the API side's
+    `get_current_user` both produce a `CurrentUser` Pydantic model the
+    rest of the code consumes identically. Two front doors, one room.
+21. **Inline scope-by-org_id for the Users page, NOT a `users_visible_to()`
+    helper.** The rules are a 3-line WHERE-by-role mapping called from
+    exactly one route. A `core/permissions.py`-style abstraction would be
+    premature; if a second route ever needs the same logic, extract then.
+    (Contrast with `buildings_visible_to()`, which is called from many
+    places and centralizing pays off.)
+
 ---
 
 ## 15. Recurring Operational Gotchas
@@ -365,23 +436,17 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
 - **Audit log rollback bug:** request session rolls back on
   HTTPException. Audit row needs OWN session+commit. See decision #6.
 - **FastAPI rejects route handlers whose return type is a Union of
-  Response subclasses.** Symptom: `FastAPIError: Invalid args for
-  response field! Hint: check that starlette.responses.HTMLResponse
-  | starlette.responses.RedirectResponse is a valid Pydantic field
-  type.` Fix: add `response_model=None` to the `@router.get(...)`
-  decorator. The error fires at decoration time → uvicorn fails to
-  import the app → container crash-loops on startup. Caught during
-  Step 3.1 delivery on the `/login` route; static syntax checks
-  (`ast.parse`) miss this because the validation only runs when the
-  decorator actually executes.
-  - **`--import-realm` only imports if the realm does NOT already exist.**
+  Response subclasses** unless `response_model=None` is on the
+  decorator. Fires at decoration/import time → uvicorn fails to load
+  app → container crash-loops. `ast.parse` misses it; only a real
+  import + FastAPI mount catches it. Now part of pre-delivery validation.
+- **`--import-realm` only imports if the realm does NOT already exist.**
   Keycloak persists realms in Postgres (`KC_DB: postgres`). Once `sparki`
   exists, edits to `keycloak/realm-export/sparki-realm.json` are ignored
   on subsequent boots. To make the JSON authoritative again you must drop
   the realm first: stop keycloak → `DROP SCHEMA keycloak CASCADE; CREATE
   SCHEMA keycloak;` in Postgres → restart keycloak → re-run `seed.py`.
   For one-off fixes, edit the client in the Keycloak admin UI instead.
-
 - **Keycloak redirect_uri matching is literal string comparison.**
   `localhost` and `127.0.0.1` are the same host but DIFFERENT strings,
   so a callback built with one won't match a redirect URI registered
@@ -390,13 +455,21 @@ the staff endpoint, audit_log is queried directly via SQLAlchemy.
   webapp client (Valid redirect URIs, Web origins, post-logout URIs), or
   always access the app via the same hostname. Symptom seen: Keycloak
   "Ongeldige parameter: redirect_uri".
+- **Tailwind CDN ignores opacity modifiers on custom colors.** Classes
+  like `bg-sparki-navy/40` silently drop their background entirely
+  under the CDN build (no PostCSS, no JIT). Use solid colors only on
+  custom tokens — `bg-sparki-navy` + a separate border for elevation.
+  Standard Tailwind colors (`bg-slate-900/40`) still work normally.
+- **`docker compose restart` does NOT re-read `.env`.** Env vars are
+  injected at container creation time. When you change `.env` (e.g.
+  `ENTSOE_API_TOKEN`), `restart` reuses the old values. Use
+  `docker compose up -d --force-recreate <service>` instead. Verify
+  with `docker compose exec <service> printenv VAR_NAME`.
+- **Charts cross-day price alignment needs full date+hour as the key.**
+  Keying by `getUTCHours()` alone collides hour-14-today with hour-14-
+  yesterday over a 24h window, producing a flat-then-jump shape.
+  Compose the key as `year-month-day-hour` (UTC) for stable mapping.
 
-- **FastAPI rejects route handlers whose return type is a Union of
-  Response subclasses** unless `response_model=None` is on the decorator.
-  Fires at decoration/import time → uvicorn fails to load app → container
-  crash-loops. `ast.parse` misses it; only a real import + FastAPI mount
-  catches it. Now part of pre-delivery validation.
-  
 ---
 
 ## 16. PowerShell Convenience Functions
@@ -429,7 +502,7 @@ $headersStaff = @{ Authorization = "Bearer $tokenStaff" }
 
 ## 17. URLs Quick-Reference
 
-- Webapp API:   http://localhost:8000
+- Dashboard:    http://localhost:8000
 - Swagger UI:   http://localhost:8000/docs
 - ReDoc:        http://localhost:8000/redoc
 - Keycloak:     http://localhost:8080

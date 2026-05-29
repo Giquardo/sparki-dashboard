@@ -30,7 +30,7 @@
     </p>
 </div>
 
-{# ─── Live metrics (full set) — HTMX 30s refresh ───────────────────── #}
+{# ─── Live metrics ─────────────────────────────────────────────────── #}
 <section class="mb-8">
     <h2 class="text-sm uppercase tracking-wider font-bold
                text-sparki-gray-500 mb-3">Live</h2>
@@ -55,11 +55,11 @@
     </div>
 </section>
 
-{# ─── Chart 2: battery SoC ─────────────────────────────────────────── #}
+{# ─── Chart 2: battery SoC + price overlay ─────────────────────────── #}
 <section class="mb-8">
     <div class="flex items-center justify-between mb-3">
         <h2 class="text-sm uppercase tracking-wider font-bold
-                   text-sparki-gray-500">Batterijlading (24u)</h2>
+                   text-sparki-gray-500">Batterijlading &amp; prijs (24u)</h2>
         <span class="text-xs text-sparki-gray-500" id="soc-chart-status">Laden…</span>
     </div>
     <div class="p-4 rounded-xl bg-sparki-navy-light border border-sparki-navy-soft">
@@ -82,6 +82,7 @@
     const C = {
         pv:      "#FBBF24", load: "#E5E7EB", grid: "#34D399",
         battery: "#0EA5E9", price: "#E63946",
+        battery_fill: "rgba(14,165,233,0.12)",
         grid_line: "rgba(255,255,255,0.06)", text: "#9CA3AF",
     };
 
@@ -93,10 +94,8 @@
         return r.json();
     }
 
-    // Show date + time so a 24h window that crosses midnight reads correctly.
     function fmtLabel(iso) {
-        const d = new Date(iso);
-        return d.toLocaleString("nl-BE",
+        return new Date(iso).toLocaleString("nl-BE",
             { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" })
             .replace(",", "");
     }
@@ -107,14 +106,39 @@
         grid:  { color: C.grid_line },
     };
 
+    // Build a price dataset aligned to the history time axis.
+    // Keys on full date+hour so a 24h window crossing midnight maps correctly.
+    // Returns null when no prices available — caller skips the overlay.
+    function buildPriceDataset(hist, prices, { yAxisID }) {
+        if (!prices || !prices.points || !prices.points.length) return null;
+        const byHour = {};
+        prices.points.forEach(pp => {
+            const d = new Date(pp.timestamp);
+            const key = d.getUTCFullYear() + "-" + d.getUTCMonth()
+                      + "-" + d.getUTCDate() + "-" + d.getUTCHours();
+            byHour[key] = pp.eur_per_mwh;
+        });
+        const data = hist.points.map(p => {
+            const d = new Date(p.timestamp);
+            const key = d.getUTCFullYear() + "-" + d.getUTCMonth()
+                      + "-" + d.getUTCDate() + "-" + d.getUTCHours();
+            return byHour[key] ?? null;
+        });
+        return {
+            label: "Prijs (€/MWh)", data,
+            borderColor: C.price, backgroundColor: C.price, yAxisID,
+            tension: 0, pointRadius: 0, borderWidth: 1.5,
+            borderDash: [5, 4], spanGaps: true,
+        };
+    }
+
     function refreshAll() {
-        // Fetch history once, share it between both charts.
         Promise.all([
             fetchJSON(`/buildings/${BUILDING_ID}/history.json`),
             fetchJSON(`/prices/${PRICE_ZONE}.json`).catch(() => null),
         ]).then(([hist, prices]) => {
             drawEnergy(hist, prices);
-            drawSoc(hist);
+            drawSoc(hist, prices);
         }).catch(e => {
             console.error("chart refresh:", e);
             document.getElementById("energy-chart-status").textContent =
@@ -136,23 +160,19 @@
               borderColor: C.grid, backgroundColor: C.grid, yAxisID: "y",
               tension: 0.3, pointRadius: 0, borderWidth: 1.5 },
         ];
-        if (prices && prices.points && prices.points.length) {
-            const byHour = {};
-            prices.points.forEach(pp => {
-                const d = new Date(pp.timestamp);
-                byHour[d.getUTCFullYear()+"-"+d.getUTCMonth()+"-"+d.getUTCDate()+"-"+d.getUTCHours()]
-                    = pp.eur_per_mwh;
-            });
-            const priceData = hist.points.map(p => {
-                const d = new Date(p.timestamp);
-                const k = d.getUTCFullYear()+"-"+d.getUTCMonth()+"-"+d.getUTCDate()+"-"+d.getUTCHours();
-                return byHour[k] ?? null;
-            });
-            ds.push({ label: "Prijs (€/MWh)", data: priceData,
-                borderColor: C.price, backgroundColor: C.price, yAxisID: "y1",
-                tension: 0, pointRadius: 0, borderWidth: 1.5,
-                borderDash: [5, 4], spanGaps: true });
+        const priceDs = buildPriceDataset(hist, prices, { yAxisID: "y1" });
+        if (priceDs) ds.push(priceDs);
+
+        const scales = {
+            x: baseX,
+            y:  { position: "left", title: { display: true, text: "kW", color: C.text },
+                  ticks: { color: C.text }, grid: { color: C.grid_line } },
+        };
+        if (priceDs) {
+            scales.y1 = { position: "right", title: { display: true, text: "€/MWh", color: C.price },
+                          ticks: { color: C.price }, grid: { drawOnChartArea: false } };
         }
+
         const cfg = {
             type: "line", data: { labels, datasets: ds },
             options: {
@@ -160,13 +180,7 @@
                 interaction: { mode: "index", intersect: false },
                 plugins: { legend: { labels: { color: C.text, font: { size: 11 },
                            usePointStyle: true, boxWidth: 8 } } },
-                scales: {
-                    x: baseX,
-                    y:  { position: "left", title: { display: true, text: "kW", color: C.text },
-                          ticks: { color: C.text }, grid: { color: C.grid_line } },
-                    y1: { position: "right", title: { display: true, text: "€/MWh", color: C.price },
-                          ticks: { color: C.price }, grid: { drawOnChartArea: false } },
-                },
+                scales,
             },
         };
         if (energyChart) { energyChart.data = cfg.data; energyChart.update("none"); }
@@ -176,23 +190,39 @@
             + hist.points.length + " punten";
     }
 
-    function drawSoc(hist) {
+    function drawSoc(hist, prices) {
         const status = document.getElementById("soc-chart-status");
         const labels = hist.points.map(p => fmtLabel(p.timestamp));
+        const ds = [{
+            label: "Lading (%)", data: hist.points.map(p => p.battery_soc),
+            borderColor: C.battery, backgroundColor: C.battery_fill,
+            fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2,
+            yAxisID: "y",
+        }];
+        const priceDs = buildPriceDataset(hist, prices, { yAxisID: "y1" });
+        if (priceDs) ds.push(priceDs);
+
+        const scales = {
+            x: baseX,
+            y: { min: 0, max: 100, position: "left",
+                 title: { display: true, text: "%", color: C.text },
+                 ticks: { color: C.text, stepSize: 25 },
+                 grid: { color: C.grid_line } },
+        };
+        if (priceDs) {
+            scales.y1 = { position: "right",
+                          title: { display: true, text: "€/MWh", color: C.price },
+                          ticks: { color: C.price }, grid: { drawOnChartArea: false } };
+        }
+
         const cfg = {
-            type: "line",
-            data: { labels, datasets: [{
-                label: "Lading (%)", data: hist.points.map(p => p.battery_soc),
-                borderColor: C.battery, backgroundColor: "rgba(14,165,233,0.12)",
-                fill: true, tension: 0.3, pointRadius: 0, borderWidth: 2 }] },
+            type: "line", data: { labels, datasets: ds },
             options: {
                 responsive: true, maintainAspectRatio: false,
-                plugins: { legend: { display: false } },
-                scales: {
-                    x: baseX,
-                    y: { min: 0, max: 100, title: { display: true, text: "%", color: C.text },
-                         ticks: { color: C.text, stepSize: 25 }, grid: { color: C.grid_line } },
-                },
+                interaction: { mode: "index", intersect: false },
+                plugins: { legend: { labels: { color: C.text, font: { size: 11 },
+                           usePointStyle: true, boxWidth: 8 } } },
+                scales,
             },
         };
         if (socChart) { socChart.data = cfg.data; socChart.update("none"); }

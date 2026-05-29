@@ -2,8 +2,9 @@
 Sparki webapp — FastAPI entrypoint.
 
 HTML UI routers:
-  - buildings_web : /, /buildings, /buildings/{id}, tiles, history.json, prices/{zone}.json
+  - buildings_web : /, /buildings, /buildings/{id}, tiles, history.json, prices/{zone}.json, sites/{id}/live.json
   - prices_web    : /prices, /prices/{zone}/current.json
+  - users_web     : /users
   - web (routes)  : /login, /auth/callback, /logout, /dev/login
 """
 
@@ -30,6 +31,7 @@ from app.prices.routes import router as prices_router
 from app.web.buildings_web import router as web_buildings_router
 from app.web.prices_web import router as web_prices_router
 from app.web.routes import router as web_router
+from app.web.users_web import router as web_users_router
 
 from app import models  # noqa: F401
 
@@ -114,4 +116,5 @@ app.include_router(prices_router)
 # HTML UI routers last (they own browser-facing paths).
 app.include_router(web_buildings_router)
 app.include_router(web_prices_router)
+app.include_router(web_users_router)
 app.include_router(web_router)

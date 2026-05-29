@@ -1,0 +1,20 @@
+{#
+  One user row used in pages/users.html.
+
+  Expects `u` in context, a dict with:
+    id, display_name, email, optional `buildings` (list[str], tenants only)
+#}
+<div class="rounded-lg bg-sparki-navy
+            border border-sparki-navy-soft px-3 py-2.5">
+    <p class="text-sm font-semibold truncate">{{ u.display_name }}</p>
+    <p class="text-[11px] text-sparki-gray-500 truncate">{{ u.email }}</p>
+    {% if u.buildings %}
+    <div class="flex flex-wrap gap-1 mt-2">
+        {% for bname in u.buildings %}
+        <span class="text-[10px] px-1.5 py-0.5 rounded
+                     bg-sparki-navy-soft text-sparki-gray-200
+                     font-medium">{{ bname }}</span>
+        {% endfor %}
+    </div>
+    {% endif %}
+</div>
